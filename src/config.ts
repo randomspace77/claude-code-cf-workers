@@ -7,6 +7,8 @@ import type { Env, AppConfig } from "./types";
 export function loadConfig(env: Env): AppConfig {
   const bigModel = env.BIG_MODEL || "gpt-4o";
   const customHeaders = parseCustomHeaders(env.CUSTOM_HEADERS);
+  const proxyMode = env.PROXY_MODE === "passthrough" ? "passthrough" : "openai";
+  const enableModelMapping = env.ENABLE_MODEL_MAPPING === "true";
 
   return {
     openaiApiKey: env.OPENAI_API_KEY || "",
@@ -21,6 +23,8 @@ export function loadConfig(env: Env): AppConfig {
     requestTimeout: parseInt(env.REQUEST_TIMEOUT || "90", 10),
     logLevel: env.LOG_LEVEL || "WARNING",
     customHeaders,
+    proxyMode,
+    enableModelMapping,
   };
 }
 
@@ -93,8 +97,14 @@ export function extractApiKey(headers: Headers): string | null {
 
 /**
  * Map a Claude model name to the configured OpenAI model.
+ * When enableModelMapping is false (default), returns the model name as-is.
  */
 export function mapModel(config: AppConfig, claudeModel: string): string {
+  // When model mapping is disabled, forward model-id as-is
+  if (!config.enableModelMapping) {
+    return claudeModel;
+  }
+
   // If it's already an OpenAI / known provider model, return as-is
   if (
     claudeModel.startsWith("gpt-") ||

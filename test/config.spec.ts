@@ -36,6 +36,8 @@ describe("loadConfig", () => {
     expect(config.customHeaders).toEqual({});
     expect(config.anthropicApiKey).toBeUndefined();
     expect(config.azureApiVersion).toBeUndefined();
+    expect(config.proxyMode).toBe("openai");
+    expect(config.enableModelMapping).toBe(false);
   });
 
   it("uses defaults when env vars are missing", () => {
@@ -127,9 +129,22 @@ describe("mapModel", () => {
     requestTimeout: 90,
     logLevel: "WARNING",
     customHeaders: {},
+    proxyMode: "openai",
+    enableModelMapping: false,
   };
 
-  // Pass-through models
+  const mappingConfig: AppConfig = { ...config, enableModelMapping: true };
+
+  // Default behavior: pass through all model names as-is
+  it("forwards Claude model names as-is when mapping disabled", () => {
+    expect(mapModel(config, "claude-3-5-sonnet-20241022")).toBe("claude-3-5-sonnet-20241022");
+    expect(mapModel(config, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(mapModel(config, "claude-3-opus-20240229")).toBe("claude-3-opus-20240229");
+    expect(mapModel(config, "claude-3-5-haiku-20241022")).toBe("claude-3-5-haiku-20241022");
+    expect(mapModel(config, "some-unknown-model")).toBe("some-unknown-model");
+  });
+
+  // Pass-through models (works regardless of mapping setting)
   it("passes through gpt-* model names", () => {
     expect(mapModel(config, "gpt-4o")).toBe("gpt-4o");
     expect(mapModel(config, "gpt-4o-mini")).toBe("gpt-4o-mini");
@@ -178,30 +193,30 @@ describe("mapModel", () => {
     expect(mapModel(config, "doubao-pro")).toBe("doubao-pro");
   });
 
-  // Claude model mapping
-  it("maps haiku to small model", () => {
-    expect(mapModel(config, "claude-3-5-haiku-20241022")).toBe("gpt-4o-mini");
-    expect(mapModel(config, "claude-3-haiku-20240307")).toBe("gpt-4o-mini");
+  // Claude model mapping (when enabled)
+  it("maps haiku to small model when enabled", () => {
+    expect(mapModel(mappingConfig, "claude-3-5-haiku-20241022")).toBe("gpt-4o-mini");
+    expect(mapModel(mappingConfig, "claude-3-haiku-20240307")).toBe("gpt-4o-mini");
   });
 
-  it("maps sonnet to middle model", () => {
-    expect(mapModel(config, "claude-3-5-sonnet-20241022")).toBe("gpt-4o");
-    expect(mapModel(config, "claude-sonnet-4-20250514")).toBe("gpt-4o");
+  it("maps sonnet to middle model when enabled", () => {
+    expect(mapModel(mappingConfig, "claude-3-5-sonnet-20241022")).toBe("gpt-4o");
+    expect(mapModel(mappingConfig, "claude-sonnet-4-20250514")).toBe("gpt-4o");
   });
 
-  it("maps opus to big model", () => {
-    expect(mapModel(config, "claude-3-opus-20240229")).toBe("gpt-4o");
-    expect(mapModel(config, "claude-opus-4-20250514")).toBe("gpt-4o");
+  it("maps opus to big model when enabled", () => {
+    expect(mapModel(mappingConfig, "claude-3-opus-20240229")).toBe("gpt-4o");
+    expect(mapModel(mappingConfig, "claude-opus-4-20250514")).toBe("gpt-4o");
   });
 
-  it("defaults unknown models to big model", () => {
-    expect(mapModel(config, "some-unknown-model")).toBe("gpt-4o");
+  it("defaults unknown models to big model when enabled", () => {
+    expect(mapModel(mappingConfig, "some-unknown-model")).toBe("gpt-4o");
   });
 
   // With custom config for GLM 5.1
-  it("maps claude models to GLM models when configured", () => {
+  it("maps claude models to GLM models when configured and enabled", () => {
     const glmConfig: AppConfig = {
-      ...config,
+      ...mappingConfig,
       bigModel: "glm-5.1",
       middleModel: "glm-5.1",
       smallModel: "glm-5.1",
@@ -226,6 +241,8 @@ describe("validateClientApiKey", () => {
     requestTimeout: 90,
     logLevel: "WARNING",
     customHeaders: {},
+    proxyMode: "openai",
+    enableModelMapping: false,
   };
 
   it("returns true when no ANTHROPIC_API_KEY is configured", () => {

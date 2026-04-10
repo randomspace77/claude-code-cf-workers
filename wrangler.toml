@@ -15,6 +15,8 @@ MAX_TOKENS_LIMIT = "16384"
 MIN_TOKENS_LIMIT = "4096"
 REQUEST_TIMEOUT = "90"
 LOG_LEVEL = "WARNING"
+# PROXY_MODE = "openai"              # "openai" (default) or "passthrough"
+# ENABLE_MODEL_MAPPING = "false"     # Set to "true" to enable Claude→provider model mapping
 
 # Secrets (set via `wrangler secret put <KEY>`):
 # - OPENAI_API_KEY (required)

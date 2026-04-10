@@ -15,6 +15,8 @@ export interface Env {
   REQUEST_TIMEOUT: string;
   LOG_LEVEL: string;
   CUSTOM_HEADERS?: string; // JSON string of custom headers
+  PROXY_MODE?: string; // "openai" (default) or "passthrough"
+  ENABLE_MODEL_MAPPING?: string; // "true" to enable Claude→provider model mapping
 }
 
 // ---- Claude API types ----
@@ -216,4 +218,6 @@ export interface AppConfig {
   requestTimeout: number;
   logLevel: string;
   customHeaders: Record<string, string>;
+  proxyMode: "openai" | "passthrough";
+  enableModelMapping: boolean;
 }

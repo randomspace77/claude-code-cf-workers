@@ -13,6 +13,8 @@ const defaultConfig: AppConfig = {
   requestTimeout: 90,
   logLevel: "WARNING",
   customHeaders: {},
+  proxyMode: "openai",
+  enableModelMapping: false,
 };
 
 describe("Request Conversion", () => {
@@ -25,31 +27,33 @@ describe("Request Conversion", () => {
 
     const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
 
-    expect(result.model).toBe("gpt-4o");
+    expect(result.model).toBe("claude-3-5-sonnet-20241022");
     expect(result.messages).toHaveLength(1);
     expect(result.messages[0].role).toBe("user");
     expect(result.messages[0].content).toBe("Hello");
   });
 
-  it("maps haiku to small model", () => {
+  it("maps haiku to small model when model mapping enabled", () => {
+    const mappingConfig: AppConfig = { ...defaultConfig, enableModelMapping: true };
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-haiku-20241022",
       max_tokens: 100,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = convertClaudeToOpenAI(claudeReq, mappingConfig);
     expect(result.model).toBe("gpt-4o-mini");
   });
 
-  it("maps opus to big model", () => {
+  it("maps opus to big model when model mapping enabled", () => {
+    const mappingConfig: AppConfig = { ...defaultConfig, enableModelMapping: true };
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-opus-20240229",
       max_tokens: 100,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = convertClaudeToOpenAI(claudeReq, mappingConfig);
     expect(result.model).toBe("gpt-4o");
   });
 

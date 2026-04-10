@@ -1,5 +1,5 @@
 import type { AppConfig, ClaudeMessagesRequest, ClaudeTokenCountRequest, ClaudeSystemContent } from "./types";
-import { loadConfig, validateClientApiKey, extractApiKey } from "./config";
+import { loadConfig, validateClientApiKey, extractApiKey, mapModel } from "./config";
 import { convertClaudeToOpenAI } from "./conversion/request";
 import {
   convertOpenAIToClaude,
@@ -16,6 +16,7 @@ import {
 
 /**
  * POST /v1/messages – Main proxy endpoint.
+ * Routes to OpenAI conversion or Anthropic passthrough based on PROXY_MODE.
  */
 export async function handleMessages(
   request: Request,
@@ -25,6 +26,91 @@ export async function handleMessages(
   if (!config.openaiApiKey) {
     return errorResponse(500, "OPENAI_API_KEY is not configured on the server");
   }
+
+  if (config.proxyMode === "passthrough") {
+    return handleMessagesPassthrough(request, config);
+  }
+
+  return handleMessagesOpenAI(request, config);
+}
+
+/**
+ * Passthrough mode: forward the Anthropic-format request directly to the backend.
+ */
+async function handleMessagesPassthrough(
+  request: Request,
+  config: AppConfig,
+): Promise<Response> {
+  try {
+    // Read raw body
+    const rawBody = await request.text();
+
+    // Optionally apply model mapping
+    let forwardBody = rawBody;
+    if (config.enableModelMapping) {
+      try {
+        const parsed = JSON.parse(rawBody);
+        if (parsed.model) {
+          parsed.model = mapModel(config, parsed.model);
+          forwardBody = JSON.stringify(parsed);
+        }
+      } catch {
+        // If parsing fails, forward as-is
+      }
+    }
+
+    // Build target URL
+    let base = config.openaiBaseUrl;
+    while (base.endsWith("/")) base = base.slice(0, -1);
+    const url = `${base}/messages`;
+
+    // Build headers for Anthropic-compatible API
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "x-api-key": config.openaiApiKey,
+      "anthropic-version": "2023-06-01",
+      "User-Agent": "claude-code-proxy/1.0.0",
+    };
+
+    // Merge custom headers (can override defaults)
+    for (const [key, value] of Object.entries(config.customHeaders)) {
+      headers[key] = value;
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: forwardBody,
+    });
+
+    // Forward response headers
+    const responseHeaders: Record<string, string> = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "*",
+    };
+    const contentType = response.headers.get("Content-Type");
+    if (contentType) {
+      responseHeaders["Content-Type"] = contentType;
+    }
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  } catch (err) {
+    console.error("Passthrough error:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResponse(502, `Passthrough request failed: ${message}`);
+  }
+}
+
+/**
+ * OpenAI conversion mode: convert Claude request to OpenAI format and back.
+ */
+async function handleMessagesOpenAI(
+  request: Request,
+  config: AppConfig,
+): Promise<Response> {
 
   // Parse body
   let body: ClaudeMessagesRequest;
@@ -158,10 +244,12 @@ export function handleRoot(config: AppConfig): Response {
     message: "Claude-to-OpenAI API Proxy v1.0.0",
     status: "running",
     config: {
+      proxy_mode: config.proxyMode,
       openai_base_url: config.openaiBaseUrl,
       max_tokens_limit: config.maxTokensLimit,
       api_key_configured: Boolean(config.openaiApiKey),
       client_api_key_validation: Boolean(config.anthropicApiKey),
+      enable_model_mapping: config.enableModelMapping,
       big_model: config.bigModel,
       middle_model: config.middleModel,
       small_model: config.smallModel,

@@ -1,13 +1,14 @@
 # Claude Code Proxy
 
-让 **Claude Code** 使用任意 OpenAI 兼容 API 的 **Cloudflare Worker** 代理。将 Claude API 请求转换为 OpenAI API 调用，支持 OpenAI、Azure、DeepSeek、GLM、Qwen、Gemini 等多种模型。
+让 **Claude Code** 使用任意 OpenAI 兼容 API 的 **Cloudflare Worker** 代理。将 Claude API 请求转换为 OpenAI API 调用，支持 OpenAI、Azure、DeepSeek、GLM、Qwen、Gemini 等多种模型。同时支持 Anthropic API 直接转发（passthrough）模式，适用于 MiniMax 等 Anthropic 兼容提供商。
 
 ## ✨ 特性
 
 - 完整的 `/v1/messages` Claude API 兼容
 - 支持流式 SSE 响应、函数调用 (tool use)、图片输入
 - 自动将 `reasoning_content` 转为 Claude 思维块 (thinking blocks)
-- 通过环境变量灵活配置 BIG / MIDDLE / SMALL 模型映射
+- **Passthrough 模式**：直接转发 Anthropic 格式请求（支持 MiniMax 等）
+- **模型映射可选**：默认忠实转发 model-id，可通过开关启用 BIG/MIDDLE/SMALL 映射
 - 部署在 Cloudflare 全球边缘网络，低延迟
 - API Key 常量时间比较，防止时序攻击
 
@@ -74,16 +75,29 @@ npm run dev                  # 启动本地开发服务器
 | `OPENAI_API_KEY` | **必填 (Secret)** 目标提供商 API Key | — |
 | `ANTHROPIC_API_KEY` | 可选 (Secret) 客户端验证 Key | 不设置则接受任意 Key |
 | `OPENAI_BASE_URL` | API 基础 URL | `https://api.openai.com/v1` |
-| `BIG_MODEL` | Claude opus 请求映射 | `gpt-4o` |
-| `MIDDLE_MODEL` | Claude sonnet 请求映射 | `gpt-4o` |
-| `SMALL_MODEL` | Claude haiku 请求映射 | `gpt-4o-mini` |
+| `PROXY_MODE` | 代理模式：`openai`（转换）或 `passthrough`（直接转发） | `openai` |
+| `ENABLE_MODEL_MAPPING` | 设为 `true` 启用 Claude→Provider 模型映射 | `false`（直接转发 model-id） |
+| `BIG_MODEL` | Claude opus 请求映射（需启用模型映射） | `gpt-4o` |
+| `MIDDLE_MODEL` | Claude sonnet 请求映射（需启用模型映射） | `gpt-4o` |
+| `SMALL_MODEL` | Claude haiku 请求映射（需启用模型映射） | `gpt-4o-mini` |
 | `MAX_TOKENS_LIMIT` | 最大 token 数 | `16384` |
 | `MIN_TOKENS_LIMIT` | 最小 token 数 | `4096` |
 | `REQUEST_TIMEOUT` | 请求超时 (秒) | `90` |
 | `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
 | `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON 字符串) | — |
 
+### 代理模式
+
+| 模式 | 说明 |
+| --- | --- |
+| `openai` (默认) | 将 Claude API 请求转换为 OpenAI API 格式，适用于 OpenAI、DeepSeek、GLM、Qwen 等 |
+| `passthrough` | 直接转发 Anthropic 格式请求到后端 API，适用于 MiniMax 等 Anthropic 兼容提供商 |
+
 ### 模型映射
+
+默认情况下，代理会**忠实转发**客户端发送的 model-id，不做任何映射。
+
+设置 `ENABLE_MODEL_MAPPING=true` 后，将启用以下映射：
 
 | Claude 请求 | 映射到 | 默认模型 |
 | --- | --- | --- |
@@ -98,11 +112,12 @@ npm run dev                  # 启动本地开发服务器
 修改 `wrangler.toml` 中的 `[vars]` 部分：
 
 <details>
-<summary><b>OpenAI</b></summary>
+<summary><b>OpenAI（需启用模型映射）</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+ENABLE_MODEL_MAPPING = "true"
 BIG_MODEL = "gpt-4o"
 MIDDLE_MODEL = "gpt-4o"
 SMALL_MODEL = "gpt-4o-mini"
@@ -110,11 +125,12 @@ SMALL_MODEL = "gpt-4o-mini"
 </details>
 
 <details>
-<summary><b>Azure OpenAI</b></summary>
+<summary><b>Azure OpenAI（需启用模型映射）</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://your-resource.openai.azure.com/openai/deployments/your-deployment"
+ENABLE_MODEL_MAPPING = "true"
 BIG_MODEL = "gpt-4"
 MIDDLE_MODEL = "gpt-4"
 SMALL_MODEL = "gpt-35-turbo"
@@ -124,11 +140,12 @@ SMALL_MODEL = "gpt-35-turbo"
 </details>
 
 <details>
-<summary><b>DeepSeek</b></summary>
+<summary><b>DeepSeek（需启用模型映射）</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://api.deepseek.com/v1"
+ENABLE_MODEL_MAPPING = "true"
 BIG_MODEL = "deepseek-chat"
 MIDDLE_MODEL = "deepseek-chat"
 SMALL_MODEL = "deepseek-chat"
@@ -136,17 +153,41 @@ SMALL_MODEL = "deepseek-chat"
 </details>
 
 <details>
-<summary><b>GLM 5.1 (智谱 Z.AI)</b></summary>
+<summary><b>OpenCode Go — GLM 5.1</b></summary>
+
+```toml
+[vars]
+OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
+# model-id 由客户端直接指定，如 glm-5.1
+```
+
+自动将 GLM 5.1 的 `reasoning_content` 转换为 Claude 思维块。
+</details>
+
+<details>
+<summary><b>GLM 5.1 (智谱 Z.AI 直连)</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
-BIG_MODEL = "glm-5.1"
-MIDDLE_MODEL = "glm-5.1"
-SMALL_MODEL = "glm-5.1"
+# model-id 由客户端直接指定，如 glm-5.1
 ```
 
 自动将 GLM 5.1 的 `reasoning_content` 转换为 Claude 思维块。
+</details>
+
+<details>
+<summary><b>OpenCode Go — MiniMax（Passthrough 模式）</b></summary>
+
+```toml
+[vars]
+PROXY_MODE = "passthrough"
+OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
+# MiniMax 使用 Anthropic API 格式，直接转发请求
+# model-id 由客户端指定，如 minimax-m2.5、minimax-m2.7
+```
+
+Passthrough 模式下请求以 Anthropic 格式直接转发，无需转换。
 </details>
 
 <details>
@@ -155,6 +196,7 @@ SMALL_MODEL = "glm-5.1"
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+ENABLE_MODEL_MAPPING = "true"
 BIG_MODEL = "gemini-2.5-pro"
 MIDDLE_MODEL = "gemini-2.5-pro"
 SMALL_MODEL = "gemini-2.0-flash"
@@ -162,11 +204,12 @@ SMALL_MODEL = "gemini-2.0-flash"
 </details>
 
 <details>
-<summary><b>Qwen (通义千问)</b></summary>
+<summary><b>Qwen (通义千问，需启用模型映射)</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+ENABLE_MODEL_MAPPING = "true"
 BIG_MODEL = "qwen-max"
 MIDDLE_MODEL = "qwen-plus"
 SMALL_MODEL = "qwen-turbo"

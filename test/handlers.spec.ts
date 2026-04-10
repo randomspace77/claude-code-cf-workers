@@ -18,6 +18,8 @@ const defaultConfig: AppConfig = {
   requestTimeout: 90,
   logLevel: "WARNING",
   customHeaders: {},
+  proxyMode: "openai",
+  enableModelMapping: false,
 };
 
 // ---- handleHealth ----
