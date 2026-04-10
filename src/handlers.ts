@@ -17,21 +17,18 @@ import {
 /**
  * POST /v1/messages – Main proxy endpoint.
  * Routes to OpenAI conversion or Anthropic passthrough based on PROXY_MODE.
+ * @param apiKey - The resolved effective API key (server key or client key)
  */
 export async function handleMessages(
   request: Request,
   config: AppConfig,
+  apiKey: string,
 ): Promise<Response> {
-  // Validate API key is configured
-  if (!config.openaiApiKey) {
-    return errorResponse(500, "OPENAI_API_KEY is not configured on the server");
-  }
-
   if (config.proxyMode === "passthrough") {
-    return handleMessagesPassthrough(request, config);
+    return handleMessagesPassthrough(request, config, apiKey);
   }
 
-  return handleMessagesOpenAI(request, config);
+  return handleMessagesOpenAI(request, config, apiKey);
 }
 
 /**
@@ -40,6 +37,7 @@ export async function handleMessages(
 async function handleMessagesPassthrough(
   request: Request,
   config: AppConfig,
+  apiKey: string,
 ): Promise<Response> {
   try {
     // Read raw body
@@ -67,7 +65,7 @@ async function handleMessagesPassthrough(
     // Build headers for Anthropic-compatible API
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "x-api-key": config.openaiApiKey,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
       "User-Agent": "claude-code-proxy/1.0.0",
     };
@@ -110,6 +108,7 @@ async function handleMessagesPassthrough(
 async function handleMessagesOpenAI(
   request: Request,
   config: AppConfig,
+  apiKey: string,
 ): Promise<Response> {
 
   // Parse body
@@ -133,6 +132,8 @@ async function handleMessagesOpenAI(
       const openaiStream = await createChatCompletionStream(
         config,
         openaiRequest,
+        undefined,
+        apiKey,
       );
       const claudeStream = convertOpenAIStreamToClaude(openaiStream, body);
 
@@ -157,7 +158,7 @@ async function handleMessagesOpenAI(
       });
     } else {
       // Non-streaming
-      const openaiResponse = await createChatCompletion(config, openaiRequest);
+      const openaiResponse = await createChatCompletion(config, openaiRequest, undefined, apiKey);
       const claudeResponse = convertOpenAIToClaude(openaiResponse, body);
       return Response.json(claudeResponse);
     }
@@ -231,7 +232,7 @@ export function handleHealth(config: AppConfig): Response {
   return Response.json({
     status: "healthy",
     timestamp: new Date().toISOString(),
-    openai_api_configured: Boolean(config.openaiApiKey),
+    key_mode: config.openaiApiKey ? "managed" : "passthrough",
     client_api_key_validation: Boolean(config.anthropicApiKey),
   });
 }
@@ -245,9 +246,9 @@ export function handleRoot(config: AppConfig): Response {
     status: "running",
     config: {
       proxy_mode: config.proxyMode,
+      key_mode: config.openaiApiKey ? "managed" : "passthrough",
       openai_base_url: config.openaiBaseUrl,
       max_tokens_limit: config.maxTokensLimit,
-      api_key_configured: Boolean(config.openaiApiKey),
       client_api_key_validation: Boolean(config.anthropicApiKey),
       enable_model_mapping: config.enableModelMapping,
       big_model: config.bigModel,
@@ -265,14 +266,21 @@ export function handleRoot(config: AppConfig): Response {
 // ---- Auth middleware ----
 
 /**
- * Validate the client API key. Returns a Response (error) if invalid, or null
- * if the request is authorized.
+ * Validate the client API key and resolve the effective API key for backend calls.
+ * Returns the effective API key string on success, or a Response (error) if invalid.
+ *
+ * Key resolution:
+ * - If OPENAI_API_KEY is configured (managed mode): use server key
+ * - Otherwise (passthrough mode): use client-provided key
+ * - If ANTHROPIC_API_KEY is configured: additionally validate client key against it
  */
 export function authenticate(
   request: Request,
   config: AppConfig,
-): Response | null {
+): Response | string {
   const clientKey = extractApiKey(request.headers);
+
+  // If ANTHROPIC_API_KEY is configured, validate client key against it
   if (!validateClientApiKey(config, clientKey)) {
     return new Response(
       JSON.stringify({
@@ -289,7 +297,27 @@ export function authenticate(
       },
     );
   }
-  return null;
+
+  // Resolve effective API key: server key takes priority, then client key
+  const effectiveKey = config.openaiApiKey || clientKey;
+  if (!effectiveKey) {
+    return new Response(
+      JSON.stringify({
+        type: "error",
+        error: {
+          type: "authentication_error",
+          message:
+            "API key is required. Provide your API key via x-api-key header or Authorization: Bearer header.",
+        },
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  return effectiveKey;
 }
 
 // ---- Helpers ----

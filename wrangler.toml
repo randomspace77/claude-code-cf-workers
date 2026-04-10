@@ -19,7 +19,7 @@ LOG_LEVEL = "WARNING"
 # ENABLE_MODEL_MAPPING = "false"     # Set to "true" to enable Claude→provider model mapping
 
 # Secrets (set via `wrangler secret put <KEY>`):
-# - OPENAI_API_KEY (required)
-# - ANTHROPIC_API_KEY (optional, for client validation)
+# - OPENAI_API_KEY (optional, 不设置则透传客户端 key — 推荐)
+# - ANTHROPIC_API_KEY (optional, 客户端验证的额外安全层)
 # - AZURE_API_VERSION (optional, for Azure OpenAI)
 # - Custom headers: CUSTOM_HEADERS (optional, JSON string)

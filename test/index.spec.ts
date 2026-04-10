@@ -46,7 +46,7 @@ describe("Claude Code Proxy Worker", () => {
   });
 
   describe("POST /v1/messages", () => {
-    it("rejects when OPENAI_API_KEY is not configured", async () => {
+    it("rejects when no API key available (no server key, no client key)", async () => {
       const request = new Request("http://localhost/v1/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -58,8 +58,8 @@ describe("Claude Code Proxy Worker", () => {
       });
       const response = await worker.fetch(request, testEnv);
 
-      // Without OPENAI_API_KEY configured, should return 500
-      expect(response.status).toBe(500);
+      // Without any API key, should return 401
+      expect(response.status).toBe(401);
       const body = (await response.json()) as Record<string, unknown>;
       expect(body.type).toBe("error");
     });
@@ -95,7 +95,10 @@ describe("Claude Code Proxy Worker", () => {
     it("estimates token count", async () => {
       const request = new Request("http://localhost/v1/messages/count_tokens", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "client-key-123",
+        },
         body: JSON.stringify({
           model: "claude-3-5-sonnet-20241022",
           messages: [
@@ -115,7 +118,9 @@ describe("Claude Code Proxy Worker", () => {
 
   describe("404 handling", () => {
     it("returns 404 for unknown routes", async () => {
-      const request = new Request("http://localhost/unknown-route");
+      const request = new Request("http://localhost/unknown-route", {
+        headers: { "x-api-key": "client-key-123" },
+      });
       const response = await worker.fetch(request, testEnv);
 
       expect(response.status).toBe(404);

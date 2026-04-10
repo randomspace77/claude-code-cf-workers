@@ -9,6 +9,7 @@
 - 自动将 `reasoning_content` 转为 Claude 思维块 (thinking blocks)
 - **Passthrough 模式**：直接转发 Anthropic 格式请求（支持 MiniMax 等）
 - **模型映射可选**：默认忠实转发 model-id，可通过开关启用 BIG/MIDDLE/SMALL 映射
+- **API Key 透传**：客户端 key 直接转发给后端，无需在服务端配置密钥（推荐）
 - 部署在 Cloudflare 全球边缘网络，低延迟
 - API Key 常量时间比较，防止时序攻击
 
@@ -30,9 +31,9 @@
    - **Build command**: `npm run build`
    - **Deploy command**: `npm run deploy`
 
-5. 部署完成后，在 Worker 的 **Settings → Variables and Secrets** 中添加：
-   - `OPENAI_API_KEY`（必填）— 你的 OpenAI 兼容 API Key
-   - `ANTHROPIC_API_KEY`（可选）— 用于客户端身份验证
+5. 部署完成后，在 Worker 的 **Settings → Variables and Secrets** 中按需添加：
+   - `OPENAI_API_KEY`（可选）— 托管模式下的后端 API Key。不设置则使用客户端 key 透传（推荐）
+   - `ANTHROPIC_API_KEY`（可选）— 用于客户端身份验证的额外安全层
 
 6. 根据你的模型提供商，按需修改 `wrangler.toml` 中的环境变量（见下方[配置](#-配置)），推送即自动重新部署
 
@@ -72,8 +73,8 @@ npm run dev                  # 启动本地开发服务器
 
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | **必填 (Secret)** 目标提供商 API Key | — |
-| `ANTHROPIC_API_KEY` | 可选 (Secret) 客户端验证 Key | 不设置则接受任意 Key |
+| `OPENAI_API_KEY` | 可选 (Secret) 后端 API Key。不设置则透传客户端 key（推荐） | — |
+| `ANTHROPIC_API_KEY` | 可选 (Secret) 客户端验证 Key（额外安全层） | 不设置则接受任意 Key |
 | `OPENAI_BASE_URL` | API 基础 URL | `https://api.openai.com/v1` |
 | `PROXY_MODE` | 代理模式：`openai`（转换）或 `passthrough`（直接转发） | `openai` |
 | `ENABLE_MODEL_MAPPING` | 设为 `true` 启用 Claude→Provider 模型映射 | `false`（直接转发 model-id） |
@@ -92,6 +93,18 @@ npm run dev                  # 启动本地开发服务器
 | --- | --- |
 | `openai` (默认) | 将 Claude API 请求转换为 OpenAI API 格式，适用于 OpenAI、DeepSeek、GLM、Qwen 等 |
 | `passthrough` | 直接转发 Anthropic 格式请求到后端 API，适用于 MiniMax 等 Anthropic 兼容提供商 |
+
+### API Key 模式
+
+代理支持两种 key 管理方式：
+
+| 模式 | `OPENAI_API_KEY` | 行为 |
+| --- | --- | --- |
+| **透传模式（推荐）** | 不设置 | 客户端的 key 直接转发给后端 API |
+| **托管模式** | 设置 | 使用服务端配置的 key，客户端 key 仅用于验证身份 |
+
+**透传模式**更灵活 — 每个用户使用自己的 API key，代理只负责格式转换。
+可选配置 `ANTHROPIC_API_KEY` 作为额外的安全层，限制谁可以访问代理。
 
 ### 模型映射
 
@@ -153,11 +166,12 @@ SMALL_MODEL = "deepseek-chat"
 </details>
 
 <details>
-<summary><b>OpenCode Go — GLM 5.1</b></summary>
+<summary><b>OpenCode Go — GLM 5.1（透传模式）</b></summary>
 
 ```toml
 [vars]
 OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
+# 不设置 OPENAI_API_KEY — 客户端 key 直接透传给后端
 # model-id 由客户端直接指定，如 glm-5.1
 ```
 
@@ -165,7 +179,7 @@ OPENAI_BASE_URL = "https://opencode.ai/zen/go/v1"
 </details>
 
 <details>
-<summary><b>GLM 5.1 (智谱 Z.AI 直连)</b></summary>
+<summary><b>GLM 5.1 (智谱 Z.AI 直连，透传模式)</b></summary>
 
 ```toml
 [vars]
@@ -177,7 +191,7 @@ OPENAI_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 </details>
 
 <details>
-<summary><b>OpenCode Go — MiniMax（Passthrough 模式）</b></summary>
+<summary><b>OpenCode Go — MiniMax（Passthrough + 透传模式）</b></summary>
 
 ```toml
 [vars]
@@ -223,12 +237,17 @@ SMALL_MODEL = "qwen-turbo"
 部署完成后，使用以下方式启动 Claude Code：
 
 ```bash
-# 未设置 ANTHROPIC_API_KEY（无客户端验证）
+# 透传模式（推荐）— 客户端 key 直接转发给后端
+ANTHROPIC_BASE_URL=https://your-worker.your-subdomain.workers.dev \
+ANTHROPIC_API_KEY="your-backend-api-key" \
+claude
+
+# 托管模式 — 服务端已配置 OPENAI_API_KEY
 ANTHROPIC_BASE_URL=https://your-worker.your-subdomain.workers.dev \
 ANTHROPIC_API_KEY="any-value" \
 claude
 
-# 已设置 ANTHROPIC_API_KEY（需匹配）
+# 如果服务端设置了 ANTHROPIC_API_KEY 验证
 ANTHROPIC_BASE_URL=https://your-worker.your-subdomain.workers.dev \
 ANTHROPIC_API_KEY="your-matching-key" \
 claude

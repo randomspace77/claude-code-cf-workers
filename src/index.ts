@@ -36,11 +36,12 @@ export default {
       }
 
       // Auth-protected endpoints
-      const authError = authenticate(request, config);
-      if (authError) return authError;
+      const authResult = authenticate(request, config);
+      if (authResult instanceof Response) return authResult;
+      const effectiveApiKey = authResult;
 
       if (request.method === "POST" && path === "/v1/messages") {
-        return handleMessages(request, config);
+        return handleMessages(request, config, effectiveApiKey);
       }
       if (request.method === "POST" && path === "/v1/messages/count_tokens") {
         return handleCountTokens(request);

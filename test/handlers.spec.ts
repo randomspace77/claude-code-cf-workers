@@ -30,20 +30,20 @@ describe("handleHealth", () => {
     expect(response.status).toBe(200);
   });
 
-  it("includes openai_api_configured as true when key present", async () => {
+  it("includes key_mode and config info", async () => {
     const response = handleHealth(defaultConfig);
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.status).toBe("healthy");
-    expect(body.openai_api_configured).toBe(true);
+    expect(body.key_mode).toBe("managed");
     expect(body.client_api_key_validation).toBe(false);
     expect(body).toHaveProperty("timestamp");
   });
 
-  it("includes openai_api_configured as false when key missing", async () => {
+  it("shows passthrough key_mode when no openai key", async () => {
     const config = { ...defaultConfig, openaiApiKey: "" };
     const response = handleHealth(config);
     const body = (await response.json()) as Record<string, unknown>;
-    expect(body.openai_api_configured).toBe(false);
+    expect(body.key_mode).toBe("passthrough");
   });
 
   it("includes client_api_key_validation as true when anthropic key set", async () => {
@@ -72,7 +72,7 @@ describe("handleRoot", () => {
     const config = body.config as Record<string, unknown>;
     expect(config.openai_base_url).toBe("https://api.openai.com/v1");
     expect(config.max_tokens_limit).toBe(16384);
-    expect(config.api_key_configured).toBe(true);
+    expect(config.key_mode).toBe("managed");
     expect(config.client_api_key_validation).toBe(false);
     expect(config.big_model).toBe("gpt-4o");
     expect(config.middle_model).toBe("gpt-4o");
@@ -103,32 +103,60 @@ describe("handleRoot", () => {
 // ---- authenticate ----
 
 describe("authenticate", () => {
-  it("returns null (authorized) when no ANTHROPIC_API_KEY configured", () => {
+  it("returns effective key (server key) when no ANTHROPIC_API_KEY configured", () => {
     const request = new Request("http://localhost/v1/messages", {
       method: "POST",
     });
     const result = authenticate(request, defaultConfig);
-    expect(result).toBeNull();
+    expect(typeof result).toBe("string");
+    expect(result).toBe("sk-test");
   });
 
-  it("returns null when valid key provided via x-api-key", () => {
+  it("returns effective key when valid key provided via x-api-key", () => {
     const config = { ...defaultConfig, anthropicApiKey: "sk-ant-test" };
     const request = new Request("http://localhost/v1/messages", {
       method: "POST",
       headers: { "x-api-key": "sk-ant-test" },
     });
     const result = authenticate(request, config);
-    expect(result).toBeNull();
+    expect(typeof result).toBe("string");
+    expect(result).toBe("sk-test"); // server key takes priority
   });
 
-  it("returns null when valid key provided via Authorization Bearer", () => {
+  it("returns effective key when valid key provided via Authorization Bearer", () => {
     const config = { ...defaultConfig, anthropicApiKey: "sk-ant-test" };
     const request = new Request("http://localhost/v1/messages", {
       method: "POST",
       headers: { Authorization: "Bearer sk-ant-test" },
     });
     const result = authenticate(request, config);
-    expect(result).toBeNull();
+    expect(typeof result).toBe("string");
+    expect(result).toBe("sk-test"); // server key takes priority
+  });
+
+  it("uses client key when no server key configured (passthrough mode)", () => {
+    const config = { ...defaultConfig, openaiApiKey: "" };
+    const request = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": "client-key-123" },
+    });
+    const result = authenticate(request, config);
+    expect(typeof result).toBe("string");
+    expect(result).toBe("client-key-123");
+  });
+
+  it("returns 401 when no server key and no client key", async () => {
+    const config = { ...defaultConfig, openaiApiKey: "" };
+    const request = new Request("http://localhost/v1/messages", {
+      method: "POST",
+    });
+    const result = authenticate(request, config);
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+    const body = (await (result as Response).json()) as Record<string, unknown>;
+    expect(body.type).toBe("error");
+    const error = body.error as Record<string, unknown>;
+    expect(error.type).toBe("authentication_error");
   });
 
   it("returns 401 when ANTHROPIC_API_KEY set but no client key provided", async () => {
@@ -137,9 +165,9 @@ describe("authenticate", () => {
       method: "POST",
     });
     const result = authenticate(request, config);
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(401);
-    const body = (await result!.json()) as Record<string, unknown>;
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
+    const body = (await (result as Response).json()) as Record<string, unknown>;
     expect(body.type).toBe("error");
     const error = body.error as Record<string, unknown>;
     expect(error.type).toBe("authentication_error");
@@ -152,8 +180,8 @@ describe("authenticate", () => {
       headers: { "x-api-key": "wrong-key" },
     });
     const result = authenticate(request, config);
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(401);
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(401);
   });
 });
 

@@ -12,9 +12,10 @@ export async function createChatCompletion(
   config: AppConfig,
   request: OpenAIRequest,
   signal?: AbortSignal,
+  apiKey?: string,
 ): Promise<OpenAIResponse> {
   const url = buildUrl(config);
-  const headers = buildHeaders(config);
+  const headers = buildHeaders(config, apiKey);
 
   const body = { ...request, stream: false };
   // Remove stream_options for non-streaming requests
@@ -43,9 +44,10 @@ export async function createChatCompletionStream(
   config: AppConfig,
   request: OpenAIRequest,
   signal?: AbortSignal,
+  apiKey?: string,
 ): Promise<ReadableStream<string>> {
   const url = buildUrl(config);
-  const headers = buildHeaders(config);
+  const headers = buildHeaders(config, apiKey);
 
   const body: OpenAIRequest = {
     ...request,
@@ -121,16 +123,17 @@ function buildUrl(config: AppConfig): string {
   return `${base}/chat/completions`;
 }
 
-function buildHeaders(config: AppConfig): Record<string, string> {
+function buildHeaders(config: AppConfig, apiKey?: string): Record<string, string> {
+  const effectiveKey = apiKey ?? config.openaiApiKey;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "User-Agent": "claude-code-proxy/1.0.0",
   };
 
   if (config.azureApiVersion) {
-    headers["api-key"] = config.openaiApiKey;
+    headers["api-key"] = effectiveKey;
   } else {
-    headers["Authorization"] = `Bearer ${config.openaiApiKey}`;
+    headers["Authorization"] = `Bearer ${effectiveKey}`;
   }
 
   // Merge custom headers
