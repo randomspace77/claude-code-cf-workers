@@ -273,6 +273,48 @@ Set secrets: `PROVIDER_OPENROUTER_API_KEY`, `PROVIDER_ANTHROPIC_API_KEY`
 </details>
 
 <details>
+<summary><b>Multi-Provider: OpenRouter with slash-style model routing</b></summary>
+
+OpenRouter uses `vendor/model` format (e.g., `qwen/qwen-3.6`, `openai/gpt-4o`). The proxy handles slashes in model names seamlessly:
+
+```json
+{
+  "default": "openrouter",
+  "routing": {
+    "qwen/*": "openrouter",
+    "openai/*": "openrouter",
+    "meta-llama/*": "openrouter",
+    "qwen-*": "qwen",
+    "deepseek-*": "deepseek"
+  },
+  "providers": {
+    "openrouter": {},
+    "qwen": {},
+    "deepseek": {}
+  }
+}
+```
+
+- Models with `/` prefix (e.g., `qwen/qwen-3.6`) → OpenRouter
+- Models without `/` prefix (e.g., `qwen-turbo`) → native provider
+- To strip the vendor prefix for a native provider, use `modelMapping`:
+
+```json
+{
+  "default": "openrouter",
+  "routing": { "qwen/*": "qwen" },
+  "providers": {
+    "openrouter": {},
+    "qwen": {
+      "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
 <summary><b>Single Provider: GLM 5.1 (legacy mode)</b></summary>
 
 No `PROVIDERS` needed — use legacy env vars:
@@ -665,6 +707,48 @@ wrangler secret put PROVIDER_DEEPSEEK_API_KEY
 ```
 
 设置密钥：`PROVIDER_OPENROUTER_API_KEY`、`PROVIDER_ANTHROPIC_API_KEY`
+
+</details>
+
+<details>
+<summary><b>多供应商：OpenRouter 含斜杠格式模型路由</b></summary>
+
+OpenRouter 使用 `厂商/模型` 格式（如 `qwen/qwen-3.6`、`openai/gpt-4o`）。代理可无缝处理含斜杠的模型名：
+
+```json
+{
+  "default": "openrouter",
+  "routing": {
+    "qwen/*": "openrouter",
+    "openai/*": "openrouter",
+    "meta-llama/*": "openrouter",
+    "qwen-*": "qwen",
+    "deepseek-*": "deepseek"
+  },
+  "providers": {
+    "openrouter": {},
+    "qwen": {},
+    "deepseek": {}
+  }
+}
+```
+
+- 带 `/` 前缀的模型（如 `qwen/qwen-3.6`）→ OpenRouter
+- 不带 `/` 前缀的模型（如 `qwen-turbo`）→ 原生供应商
+- 若需去除厂商前缀发送给原生供应商，可用 `modelMapping`：
+
+```json
+{
+  "default": "openrouter",
+  "routing": { "qwen/*": "qwen" },
+  "providers": {
+    "openrouter": {},
+    "qwen": {
+      "modelMapping": { "qwen/qwen-3.6": "qwen-3.6" }
+    }
+  }
+}
+```
 
 </details>
 

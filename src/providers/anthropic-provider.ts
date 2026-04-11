@@ -58,13 +58,39 @@ export async function sendAnthropicRequest(
     });
   } catch (err) {
     console.error(`Anthropic provider "${provider.name}" error:`, err);
-    const message = err instanceof Error ? err.message : String(err);
+    const raw = err instanceof Error ? err.message : String(err);
+    const safeMessage = classifyAnthropicError(raw);
     return new Response(
       JSON.stringify({
         type: "error",
-        error: { type: "api_error", message: `Passthrough request failed: ${message}` },
+        error: { type: "api_error", message: safeMessage },
       }),
       { status: 502, headers: { "Content-Type": "application/json" } },
     );
   }
+}
+
+/**
+ * Classify error messages for safe client display (no raw details exposed).
+ */
+function classifyAnthropicError(errorDetail: string): string {
+  const lower = errorDetail.toLowerCase();
+
+  if (lower.includes("unauthorized") || lower.includes("invalid") && lower.includes("key")) {
+    return "Invalid API key. Please check your provider API key configuration.";
+  }
+  if (lower.includes("rate_limit") || lower.includes("rate limit") || lower.includes("quota")) {
+    return "Rate limit exceeded. Please wait and try again.";
+  }
+  if (lower.includes("model") && (lower.includes("not found") || lower.includes("does not exist"))) {
+    return "Model not found. Please check your model configuration.";
+  }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Request timed out. The provider did not respond in time.";
+  }
+  if (lower.includes("billing") || lower.includes("payment")) {
+    return "Billing issue. Please check your account billing status.";
+  }
+
+  return "An error occurred while communicating with the API provider.";
 }

@@ -315,6 +315,30 @@ describe("globMatch", () => {
     expect(globMatch("glm-5.1", "GLM-*")).toBe(false);
     expect(globMatch("glm-5.1", "glm-*")).toBe(true);
   });
+
+  it("matches models with slashes (OpenRouter-style)", () => {
+    expect(globMatch("qwen/qwen-3.6", "qwen/*")).toBe(true);
+    expect(globMatch("openai/gpt-4o", "openai/*")).toBe(true);
+    expect(globMatch("meta-llama/llama-3.1-70b", "meta-llama/*")).toBe(true);
+    expect(globMatch("qwen/qwen-3.6", "deepseek/*")).toBe(false);
+  });
+
+  it("matches exact model with slash", () => {
+    expect(globMatch("qwen/qwen-3.6", "qwen/qwen-3.6")).toBe(true);
+    expect(globMatch("qwen/qwen-3.6", "qwen/qwen-3.5")).toBe(false);
+  });
+
+  it("matches models with dots in name", () => {
+    expect(globMatch("glm-5.1", "glm-5.1")).toBe(true);
+    expect(globMatch("glm-5.1", "glm-5.2")).toBe(false);
+    expect(globMatch("glm-5.1", "glm-*")).toBe(true);
+  });
+
+  it("matches models with nested slashes", () => {
+    expect(globMatch("org/provider/model-v2", "org/provider/*")).toBe(true);
+    expect(globMatch("org/provider/model-v2", "org/*/*")).toBe(true);
+    expect(globMatch("org/provider/model-v2", "org/*")).toBe(true); // * matches /
+  });
 });
 
 // ---- resolveProvider ----
@@ -377,6 +401,58 @@ describe("resolveProvider", () => {
     const result = resolveProvider("GLM-5.1", routing, "openai", providers);
     expect(result?.name).toBe("glm");
   });
+
+  it("routes slash-style model names (OpenRouter format)", () => {
+    const orProviders: Record<string, ResolvedProvider> = {
+      ...providers,
+      openrouter: {
+        name: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        protocol: "openai",
+        apiKey: "sk-or",
+        timeout: 90,
+        headers: {},
+      },
+      qwen: {
+        name: "qwen",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        protocol: "openai",
+        apiKey: "sk-qwen",
+        timeout: 90,
+        headers: {},
+      },
+    };
+    const orRouting = {
+      ...routing,
+      "qwen/*": "openrouter",
+      "qwen-*": "qwen",
+      "openai/*": "openrouter",
+    };
+
+    // qwen/qwen-3.6 (OpenRouter format) → openrouter
+    const r1 = resolveProvider("qwen/qwen-3.6", orRouting, "openai", orProviders);
+    expect(r1?.name).toBe("openrouter");
+
+    // qwen-turbo (native Qwen format) → qwen provider
+    const r2 = resolveProvider("qwen-turbo", orRouting, "openai", orProviders);
+    expect(r2?.name).toBe("qwen");
+
+    // openai/gpt-4o (OpenRouter format) → openrouter
+    const r3 = resolveProvider("openai/gpt-4o", orRouting, "openai", orProviders);
+    expect(r3?.name).toBe("openrouter");
+  });
+
+  it("first matching routing rule wins", () => {
+    const strictRouting = {
+      "gpt-4o": "openai",      // exact match first
+      "gpt-*": "glm",          // wildcard second
+    };
+    const r1 = resolveProvider("gpt-4o", strictRouting, "openai", providers);
+    expect(r1?.name).toBe("openai");
+
+    const r2 = resolveProvider("gpt-4o-mini", strictRouting, "openai", providers);
+    expect(r2?.name).toBe("glm");
+  });
 });
 
 // ---- mapModelForProvider ----
@@ -412,6 +488,31 @@ describe("mapModelForProvider", () => {
       modelMapping: { opus: "gpt-4o" },
     };
     expect(mapModelForProvider(mapped, "some-other-model")).toBe("some-other-model");
+  });
+
+  it("maps exact slash-style model names", () => {
+    const mapped = {
+      ...provider,
+      modelMapping: {
+        "qwen/qwen-3.6": "qwen-3.6",
+        "openai/gpt-4o": "gpt-4o",
+      },
+    };
+    expect(mapModelForProvider(mapped, "qwen/qwen-3.6")).toBe("qwen-3.6");
+    expect(mapModelForProvider(mapped, "openai/gpt-4o")).toBe("gpt-4o");
+    expect(mapModelForProvider(mapped, "some-other-model")).toBe("some-other-model");
+  });
+
+  it("first matching keyword wins (order matters)", () => {
+    const mapped = {
+      ...provider,
+      modelMapping: {
+        "qwen/qwen": "specific-match",
+        "qwen": "broad-match",
+      },
+    };
+    // "qwen/qwen-3.6" includes both "qwen/qwen" and "qwen" — first entry wins
+    expect(mapModelForProvider(mapped, "qwen/qwen-3.6")).toBe("specific-match");
   });
 });
 
