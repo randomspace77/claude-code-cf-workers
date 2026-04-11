@@ -25,23 +25,35 @@ export function convertOpenAIToClaude(
   const message = choice.message;
   const debug = logLevel === "DEBUG";
 
-  // Log response metadata; include raw content only in DEBUG mode
-  const logData: Record<string, unknown> = {
-    _tag: "non-stream-response",
-    has_content: message?.content !== null && message?.content !== undefined,
-    content_type: typeof message?.content,
-    content_length: typeof message?.content === "string" ? message.content.length : 0,
-    has_reasoning: Boolean(message?.reasoning_content),
-    reasoning_length: typeof message?.reasoning_content === "string" ? message.reasoning_content.length : 0,
-    tool_calls_count: message?.tool_calls?.length ?? 0,
-    finish_reason: choice.finish_reason,
-    usage: openaiResponse.usage,
-  };
   if (debug) {
-    logData.content = message?.content;
-    logData.reasoning_content = message?.reasoning_content;
+    // Full response metadata + raw content in DEBUG mode
+    console.log({
+      _tag: "non-stream-response",
+      has_content: message?.content !== null && message?.content !== undefined,
+      content_type: typeof message?.content,
+      content_length: typeof message?.content === "string" ? message.content.length : 0,
+      has_reasoning: Boolean(message?.reasoning_content),
+      reasoning_length: typeof message?.reasoning_content === "string" ? message.reasoning_content.length : 0,
+      tool_calls_count: message?.tool_calls?.length ?? 0,
+      finish_reason: choice.finish_reason,
+      usage: openaiResponse.usage,
+      content: message?.content,
+      reasoning_content: message?.reasoning_content,
+    });
+  } else {
+    // WARNING level: only log anomalies
+    const hasContent = message?.content !== null && message?.content !== undefined && message?.content !== "";
+    const hasReasoning = Boolean(message?.reasoning_content);
+    const hasToolCalls = (message?.tool_calls?.length ?? 0) > 0;
+    if (!hasContent && !hasReasoning && !hasToolCalls) {
+      console.warn({
+        _tag: "non-stream-response-empty",
+        finish_reason: choice.finish_reason,
+        usage: openaiResponse.usage,
+        message: "Response has no content, reasoning, or tool calls",
+      });
+    }
   }
-  console.log(logData);
 
   const contentBlocks: Record<string, unknown>[] = [];
 
