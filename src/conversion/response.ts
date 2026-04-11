@@ -227,6 +227,7 @@ export function convertOpenAIStreamToClaude(
                 _tag: "stream-delta",
                 type: "reasoning",
                 length: delta.reasoning_content.length,
+                content: delta.reasoning_content,
               });
             }
             if (delta.content !== null && delta.content !== undefined) {
@@ -234,6 +235,7 @@ export function convertOpenAIStreamToClaude(
                 _tag: "stream-delta",
                 type: "content",
                 length: delta.content.length,
+                content: delta.content,
               });
             }
             if (finishReason) {

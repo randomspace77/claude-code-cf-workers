@@ -45,6 +45,41 @@ export async function handleMessages(
 
   const model = typeof parsed.model === "string" ? parsed.model : "";
 
+  // Log request details in DEBUG mode
+  if (config.logLevel === "DEBUG") {
+    // Full structured body for machine consumption
+    console.log({ _tag: "request-body", body: parsed });
+    // Human-readable prompt summary
+    const messages = Array.isArray(parsed.messages) ? parsed.messages as Array<{ role?: string; content?: unknown }> : [];
+    const lines = messages.map((m, i) => {
+      const role = String(m.role ?? "unknown").toUpperCase();
+      let text: string;
+      if (typeof m.content === "string") {
+        text = m.content;
+      } else if (Array.isArray(m.content)) {
+        text = (m.content as Array<Record<string, unknown>>)
+          .map((b) => (typeof b.text === "string" ? b.text : `[${b.type ?? "block"}]`))
+          .join(" ");
+      } else {
+        text = "[non-text]";
+      }
+      return `[${i}] ${role}: ${text}`;
+    });
+    const system = parsed.system
+      ? typeof parsed.system === "string"
+        ? parsed.system
+        : JSON.stringify(parsed.system)
+      : "(none)";
+    console.log(
+      `\n===== REQUEST PROMPT =====\n` +
+      `Model: ${model} | Stream: ${!!parsed.stream} | MaxTokens: ${parsed.max_tokens ?? "default"}\n` +
+      `System: ${system}\n` +
+      `--- Messages (${messages.length}) ---\n` +
+      lines.join("\n") +
+      `\n=========================\n`
+    );
+  }
+
   if (isPassthroughModel(config, model)) {
     return handleMessagesPassthrough(rawBody, parsed, config, apiKey);
   }
