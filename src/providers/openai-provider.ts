@@ -80,7 +80,7 @@ async function handleStreamingRequest(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    return errorResponse(response.status, classifyError(errorBody));
+    return errorResponse(response.status, classifyError(errorBody, response.status));
   }
 
   if (!response.body) {
@@ -156,7 +156,7 @@ async function handleNonStreamingRequest(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    return errorResponse(response.status, classifyError(errorBody));
+    return errorResponse(response.status, classifyError(errorBody, response.status));
   }
 
   const openaiResponse = await response.json();
@@ -172,24 +172,25 @@ async function handleNonStreamingRequest(
 /**
  * Classify error messages for safe client display.
  * Never exposes raw backend error details to prevent information leakage.
+ * Uses both the HTTP status code and error body for classification.
  */
-function classifyError(errorDetail: string): string {
+function classifyError(errorDetail: string, statusCode?: number): string {
   const lower = errorDetail.toLowerCase();
 
   if (lower.includes("unsupported_country_region_territory") || lower.includes("country, region, or territory not supported")) {
     return "API is not available in your region.";
   }
-  if (lower.includes("invalid_api_key") || lower.includes("unauthorized") || lower.includes("invalidauthenticationtoken")) {
+  if (statusCode === 401 || lower.includes("invalid_api_key") || lower.includes("unauthorized") || lower.includes("invalidauthenticationtoken")) {
     return "Invalid API key. Please check your provider API key configuration.";
   }
-  if (lower.includes("rate_limit") || lower.includes("quota")) {
+  if (statusCode === 402 || lower.includes("billing") || lower.includes("payment") || lower.includes("insufficient") || lower.includes("balance") || lower.includes("credit")) {
+    return "Insufficient account balance or billing issue. Please top up your provider account.";
+  }
+  if (statusCode === 429 || lower.includes("rate_limit") || lower.includes("quota")) {
     return "Rate limit exceeded. Please wait and try again.";
   }
   if (lower.includes("model") && (lower.includes("not found") || lower.includes("does not exist"))) {
     return "Model not found. Please check your model configuration.";
-  }
-  if (lower.includes("billing") || lower.includes("payment")) {
-    return "Billing issue. Please check your account billing status.";
   }
   if (lower.includes("timeout") || lower.includes("timed out")) {
     return "Request timed out. The provider did not respond in time.";
