@@ -259,7 +259,7 @@ describe("convertOpenAIStreamToClaude", () => {
     expect(textStart).toBeDefined();
   });
 
-  it("handles thinking-only stream (no text content)", async () => {
+  it("promotes reasoning to text when stream has only thinking (no text content)", async () => {
     const openaiLines = [
       'data: {"id":"chatcmpl-6","object":"chat.completion.chunk","created":123,"model":"glm-5.1","choices":[{"index":0,"delta":{"reasoning_content":"Thinking only..."},"finish_reason":null}]}',
       'data: {"id":"chatcmpl-6","object":"chat.completion.chunk","created":123,"model":"glm-5.1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
@@ -279,13 +279,26 @@ describe("convertOpenAIStreamToClaude", () => {
     );
     expect(thinkingStart).toBeDefined();
 
-    // Should close thinking block and still have a text block
+    // Should close thinking block and have a text block
     const textStart = events.find(
       (e) =>
         e.event === "content_block_start" &&
         (e.data.content_block as Record<string, unknown>)?.type === "text",
     );
     expect(textStart).toBeDefined();
+
+    // Text block should contain the accumulated thinking content
+    // (promoted to text so Claude Code gets valid text content)
+    const textDeltas = events.filter(
+      (e) =>
+        e.event === "content_block_delta" &&
+        (e.data.delta as Record<string, unknown>)?.type === "text_delta",
+    );
+    expect(textDeltas.length).toBeGreaterThanOrEqual(1);
+    const textContent = textDeltas
+      .map((e) => (e.data.delta as Record<string, unknown>)?.text)
+      .join("");
+    expect(textContent).toBe("Thinking only...");
 
     // Should have message_stop
     expect(events.find((e) => e.event === "message_stop")).toBeDefined();

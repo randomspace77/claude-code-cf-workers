@@ -25,19 +25,37 @@ export function convertOpenAIToClaude(
 
   const contentBlocks: Record<string, unknown>[] = [];
 
-  // Reasoning/thinking content (e.g. from GLM 5.1 thinking mode)
-  if (message?.reasoning_content) {
+  const reasoningText = message?.reasoning_content || "";
+  const hasText = message?.content !== null && message?.content !== undefined && message?.content !== "";
+  const hasToolCalls = Boolean(message?.tool_calls?.length);
+
+  // When reasoning exists alongside real text content, emit both blocks.
+  // When reasoning is the ONLY output (no text, no tool calls), promote it
+  // to a text block so Claude Code receives valid text content.
+  if (reasoningText && hasText) {
     contentBlocks.push({
       type: Constants.CONTENT_THINKING,
-      thinking: message.reasoning_content,
+      thinking: reasoningText,
     });
-  }
-
-  // Text content
-  if (message?.content !== null && message?.content !== undefined) {
     contentBlocks.push({
       type: Constants.CONTENT_TEXT,
-      text: message.content,
+      text: message!.content,
+    });
+  } else if (reasoningText && !hasText && hasToolCalls) {
+    contentBlocks.push({
+      type: Constants.CONTENT_THINKING,
+      thinking: reasoningText,
+    });
+  } else if (reasoningText && !hasText) {
+    // No text, no tools — reasoning IS the response
+    contentBlocks.push({
+      type: Constants.CONTENT_TEXT,
+      text: reasoningText,
+    });
+  } else if (hasText) {
+    contentBlocks.push({
+      type: Constants.CONTENT_TEXT,
+      text: message!.content,
     });
   }
 
@@ -110,6 +128,7 @@ export function convertOpenAIStreamToClaude(
   // then text block, then tool blocks
   let thinkingBlockStarted = false;
   let thinkingBlockIndex = -1;
+  let thinkingAccumulator = "";
   let textBlockStarted = false;
   let textBlockIndex = 0;
   let nextBlockIndex = 0;
@@ -221,6 +240,7 @@ export function convertOpenAIStreamToClaude(
                 },
               }),
             );
+            thinkingAccumulator += delta.reasoning_content;
             enqueued = true;
           }
 
@@ -387,7 +407,7 @@ export function convertOpenAIStreamToClaude(
 
     // Ensure text block exists and close it
     if (!textBlockStarted) {
-      // Start an empty text block if none existed
+      // Start a text block
       textBlockIndex = nextBlockIndex++;
       textBlockStarted = true;
       controller.enqueue(
@@ -397,6 +417,21 @@ export function convertOpenAIStreamToClaude(
           content_block: { type: Constants.CONTENT_TEXT, text: "" },
         }),
       );
+
+      // If reasoning was the only output and no tool calls,
+      // emit accumulated thinking as text so Claude Code gets valid content
+      if (thinkingAccumulator && currentToolCalls.size === 0) {
+        controller.enqueue(
+          sseFrame(Constants.EVENT_CONTENT_BLOCK_DELTA, {
+            type: Constants.EVENT_CONTENT_BLOCK_DELTA,
+            index: textBlockIndex,
+            delta: {
+              type: Constants.DELTA_TEXT,
+              text: thinkingAccumulator,
+            },
+          }),
+        );
+      }
     }
 
     // Close text block

@@ -77,7 +77,7 @@ describe("Response Conversion - Reasoning Content", () => {
     expect(content[0].text).toBe("Hello!");
   });
 
-  it("handles response with reasoning_content but null content", () => {
+  it("promotes reasoning_content to text when content is null (no tool calls)", () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-reasoning-only",
       object: "chat.completion",
@@ -98,10 +98,37 @@ describe("Response Conversion - Reasoning Content", () => {
 
     const result = convertOpenAIToClaude(openaiResponse, originalRequest);
     const content = result.content as Array<Record<string, unknown>>;
-    // Should have thinking block + empty text block (required by protocol)
-    expect(content.length).toBeGreaterThanOrEqual(1);
-    expect(content[0].type).toBe("thinking");
-    expect(content[0].thinking).toBe("Deep thinking...");
+    // reasoning_content should be promoted to text (not thinking)
+    // so Claude Code receives valid text content
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toBe("Deep thinking...");
+  });
+
+  it("promotes reasoning_content to text when content is empty string", () => {
+    const openaiResponse: OpenAIResponse = {
+      id: "chatcmpl-reasoning-empty",
+      object: "chat.completion",
+      created: 1234567890,
+      model: "glm-5.1",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: "",
+            reasoning_content: "Summary of the conversation...",
+          },
+          finish_reason: "stop",
+        },
+      ],
+    };
+
+    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const content = result.content as Array<Record<string, unknown>>;
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toBe("Summary of the conversation...");
   });
 
   it("handles response with empty reasoning_content string", () => {
