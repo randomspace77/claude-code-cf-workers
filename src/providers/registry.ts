@@ -12,6 +12,10 @@ export const KNOWN_PROVIDERS: Record<string, KnownProvider> = {
   openrouter: {
     baseUrl: "https://openrouter.ai/api/v1",
     protocol: "openai",
+    defaultHeaders: {
+      "HTTP-Referer": "https://github.com/randomspace77/claude-code-proxy-cf-workers",
+      "X-Title": "claude-code-proxy-cf-workers",
+    },
   },
   deepseek: {
     baseUrl: "https://api.deepseek.com/v1",
