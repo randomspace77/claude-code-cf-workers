@@ -76,7 +76,7 @@ export async function sendAnthropicRequest(
 function classifyAnthropicError(errorDetail: string): string {
   const lower = errorDetail.toLowerCase();
 
-  if (lower.includes("unauthorized") || lower.includes("invalid") && lower.includes("key")) {
+  if (lower.includes("unauthorized") || (lower.includes("invalid") && lower.includes("key"))) {
     return "Invalid API key. Please check your provider API key configuration.";
   }
   if (lower.includes("rate_limit") || lower.includes("rate limit") || lower.includes("quota")) {

@@ -443,6 +443,19 @@ src/
 
 ---
 
+### 🔒 Security Notes
+
+- **Authentication**: Proxy-level auth via `ANTHROPIC_API_KEY` uses constant-time string comparison to prevent timing attacks.
+- **Error sanitization**: All error messages are classified into generic user-facing categories — raw backend errors are never exposed to clients.
+- **Header blocklist**: Custom headers cannot override `Authorization`, `api-key`, `Host`, or `Content-Type`.
+- **No SSRF**: Backend URLs are resolved from environment variables and the built-in provider registry only — never from user request input.
+- **CORS**: The proxy returns `Access-Control-Allow-Origin: *` by default. This is required for browser-based clients but means **any website can call your proxy if they know the URL and API key**. For stricter security, add Cloudflare Access or IP allowlists.
+- **Rate limiting**: No built-in rate limiting. Use [Cloudflare Rate Limiting Rules](https://developers.cloudflare.com/waf/rate-limiting-rules/) for production deployments.
+- **DEBUG logging**: When `LOG_LEVEL=DEBUG`, full request/response content (including user messages) is logged. **Do not use DEBUG in production** with sensitive data.
+- **Zero production dependencies**: The deployed worker bundle has no npm dependencies — pure TypeScript compiled to a single file.
+
+---
+
 <a id="中文"></a>
 
 ## 中文
@@ -863,6 +876,19 @@ src/
     ├── request.ts              # Claude → OpenAI 请求转换
     └── response.ts             # OpenAI → Claude 响应转换
 ```
+
+---
+
+### 🔒 安全说明
+
+- **身份认证**：通过 `ANTHROPIC_API_KEY` 进行代理级认证，使用恒定时间字符串比较防止时序攻击。
+- **错误信息脱敏**：所有错误信息均分类为通用的用户友好消息——后端原始错误永远不会暴露给客户端。
+- **请求头黑名单**：自定义请求头无法覆盖 `Authorization`、`api-key`、`Host` 或 `Content-Type`。
+- **无 SSRF 风险**：后端 URL 仅从环境变量和内置供应商注册表解析——绝不来自用户请求输入。
+- **CORS**：代理默认返回 `Access-Control-Allow-Origin: *`。这是浏览器客户端所需的，但意味着**任何网站都可以在知道 URL 和 API 密钥的情况下调用你的代理**。如需更严格的安全控制，请配置 Cloudflare Access 或 IP 白名单。
+- **速率限制**：无内置速率限制。生产环境请使用 [Cloudflare 速率限制规则](https://developers.cloudflare.com/waf/rate-limiting-rules/)。
+- **DEBUG 日志**：当 `LOG_LEVEL=DEBUG` 时，会记录完整的请求/响应内容（包括用户消息）。**生产环境请勿使用 DEBUG 模式**处理敏感数据。
+- **零生产依赖**：部署的 Worker 包没有 npm 依赖——纯 TypeScript 编译为单一文件。
 
 ---
 

@@ -48,15 +48,23 @@ export function resolveProvider(
 export function globMatch(text: string, pattern: string): boolean {
   // Convert glob to regex: escape special regex chars, then replace glob wildcards
   let regexStr = "";
+  let prevStar = false;
   for (const ch of pattern) {
     if (ch === "*") {
-      regexStr += ".*";
+      // Collapse consecutive * into a single .* to prevent ReDoS
+      if (!prevStar) {
+        regexStr += ".*";
+        prevStar = true;
+      }
     } else if (ch === "?") {
       regexStr += ".";
+      prevStar = false;
     } else if (".+^${}()|[]\\".includes(ch)) {
       regexStr += "\\" + ch;
+      prevStar = false;
     } else {
       regexStr += ch;
+      prevStar = false;
     }
   }
   return new RegExp(`^${regexStr}$`).test(text);

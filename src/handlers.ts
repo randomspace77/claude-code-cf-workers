@@ -51,19 +51,19 @@ export async function handleMessages(
       }
       return `[${i}] ${role}: ${text}`;
     });
-    const system = parsed.system
-      ? typeof parsed.system === "string"
-        ? parsed.system
-        : JSON.stringify(parsed.system)
-      : "(none)";
-    console.log(
-      `\n===== REQUEST PROMPT =====\n` +
-      `Model: ${model} | Stream: ${!!parsed.stream} | MaxTokens: ${parsed.max_tokens ?? "default"}\n` +
-      `System: ${system}\n` +
-      `--- Messages (${messages.length}) ---\n` +
-      lines.join("\n") +
-      `\n=========================\n`
-    );
+    console.log({
+      _tag: "request-prompt",
+      model,
+      stream: !!parsed.stream,
+      maxTokens: parsed.max_tokens ?? "default",
+      system: parsed.system
+        ? typeof parsed.system === "string"
+          ? parsed.system
+          : JSON.stringify(parsed.system)
+        : "(none)",
+      messageCount: messages.length,
+      messages: lines,
+    });
   }
 
   const body = parsed as unknown as ClaudeMessagesRequest;
@@ -104,6 +104,12 @@ export async function handleMessages(
 export async function handleCountTokens(
   request: Request,
 ): Promise<Response> {
+  // Reject oversized request bodies (10 MB limit)
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > 10 * 1024 * 1024) {
+    return errorResponse(413, "Request body too large (max 10 MB)");
+  }
+
   let body: ClaudeTokenCountRequest;
   try {
     body = (await request.json()) as ClaudeTokenCountRequest;

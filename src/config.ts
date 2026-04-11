@@ -170,7 +170,7 @@ function resolveOneProvider(
   };
 
   // Blocklist: prevent overriding sensitive headers
-  const blocklist = new Set(["authorization", "api-key", "host"]);
+  const blocklist = new Set(["authorization", "api-key", "host", "content-type"]);
   for (const key of Object.keys(headers)) {
     if (blocklist.has(key.toLowerCase())) {
       delete headers[key];
@@ -225,7 +225,7 @@ function buildLegacyProvider(
  */
 function parseCustomHeaders(raw: string | undefined): Record<string, string> {
   if (!raw) return {};
-  const blocklist = new Set(["authorization", "api-key", "host"]);
+  const blocklist = new Set(["authorization", "api-key", "host", "content-type"]);
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {

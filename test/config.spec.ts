@@ -339,6 +339,16 @@ describe("globMatch", () => {
     expect(globMatch("org/provider/model-v2", "org/*/*")).toBe(true);
     expect(globMatch("org/provider/model-v2", "org/*")).toBe(true); // * matches /
   });
+
+  it("collapses consecutive wildcards (ReDoS prevention)", () => {
+    // Multiple consecutive * should not cause catastrophic backtracking
+    const start = Date.now();
+    expect(globMatch("a".repeat(100), "***********")).toBe(true);
+    expect(globMatch("a".repeat(100) + "b", "***********c")).toBe(false);
+    const elapsed = Date.now() - start;
+    // Should complete in well under 1 second (would hang without ReDoS fix)
+    expect(elapsed).toBeLessThan(100);
+  });
 });
 
 // ---- resolveProvider ----
