@@ -453,6 +453,7 @@ src/
 - **Rate limiting**: No built-in rate limiting. Use [Cloudflare Rate Limiting Rules](https://developers.cloudflare.com/waf/rate-limiting-rules/) for production deployments.
 - **DEBUG logging**: When `LOG_LEVEL=DEBUG`, full request/response content (including user messages) is logged. **Do not use DEBUG in production** with sensitive data.
 - **Zero production dependencies**: The deployed worker bundle has no npm dependencies — pure TypeScript compiled to a single file.
+- **Region bypass (Smart Placement)**: The Worker uses Cloudflare [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/) to run near the backend API instead of the end-user. This routes outbound requests through non-restricted regions, bypassing upstream provider region blocks.
 
 ---
 
@@ -889,6 +890,7 @@ src/
 - **速率限制**：无内置速率限制。生产环境请使用 [Cloudflare 速率限制规则](https://developers.cloudflare.com/waf/rate-limiting-rules/)。
 - **DEBUG 日志**：当 `LOG_LEVEL=DEBUG` 时，会记录完整的请求/响应内容（包括用户消息）。**生产环境请勿使用 DEBUG 模式**处理敏感数据。
 - **零生产依赖**：部署的 Worker 包没有 npm 依赖——纯 TypeScript 编译为单一文件。
+- **区域绕过（Smart Placement）**：Worker 启用了 Cloudflare [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/)，在靠近后端 API 的节点运行而非靠近用户。出站请求的 IP 来自非受限区域，自动绕过上游供应商的区域限制。
 
 ---
 

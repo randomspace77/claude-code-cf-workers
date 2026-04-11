@@ -8,6 +8,12 @@ compatibility_flags = ["nodejs_compat"]
 # Without this, `wrangler deploy` would clear all vars not in [vars].
 keep_vars = true
 
+# Smart Placement: run the Worker near the backend API (e.g. US) instead of
+# near the end-user. This makes outbound requests originate from IPs in the
+# backend's region, bypassing upstream provider region restrictions.
+[placement]
+mode = "smart"
+
 # Observability — enable logs for debugging via Dashboard or `wrangler tail`
 [observability]
 enabled = true
