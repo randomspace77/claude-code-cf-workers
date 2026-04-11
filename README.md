@@ -92,6 +92,9 @@ All configuration is done via **Cloudflare Dashboard** (Settings → Variables a
 | `REQUEST_TIMEOUT` | Request timeout (seconds) | `90` |
 | `AZURE_API_VERSION` | Azure OpenAI API version | — |
 | `CUSTOM_HEADERS` | Custom HTTP headers (JSON string) | — |
+| `LOG_LEVEL` | Log verbosity (`WARNING` / `DEBUG`) | `WARNING` |
+
+> **💡 Debug Logging:** Set `LOG_LEVEL=DEBUG` to enable detailed request/response logging (raw content, streaming deltas, finish reasons). Useful for troubleshooting model compatibility issues. Keep it at `WARNING` (default) in production to avoid log costs.
 
 #### Request Routing
 
@@ -382,6 +385,9 @@ npm run dev                  # 启动本地开发服务器
 | `REQUEST_TIMEOUT` | 请求超时 (秒) | `90` |
 | `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
 | `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON 字符串) | — |
+| `LOG_LEVEL` | 日志级别（`WARNING` / `DEBUG`） | `WARNING` |
+
+> **💡 调试日志：** 设置 `LOG_LEVEL=DEBUG` 可启用详细的请求/响应日志（原始内容、流式增量数据、结束原因等）。适用于排查模型兼容性问题。生产环境建议保持 `WARNING`（默认值）以避免日志费用。
 
 #### 请求路由
 
