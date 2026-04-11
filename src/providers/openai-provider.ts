@@ -171,24 +171,34 @@ async function handleNonStreamingRequest(
 
 /**
  * Classify error messages for safe client display.
- * Preserves detailed error text so users can diagnose real issues.
+ * Never exposes raw backend error details to prevent information leakage.
  */
 function classifyError(errorDetail: string): string {
   const lower = errorDetail.toLowerCase();
 
-  // Only use generic message for obviously sensitive errors
+  if (lower.includes("unsupported_country_region_territory") || lower.includes("country, region, or territory not supported")) {
+    return "API is not available in your region.";
+  }
   if (lower.includes("invalid_api_key") || lower.includes("unauthorized") || lower.includes("invalidauthenticationtoken")) {
     return "Invalid API key. Please check your provider API key configuration.";
   }
   if (lower.includes("rate_limit") || lower.includes("quota")) {
     return "Rate limit exceeded. Please wait and try again.";
   }
+  if (lower.includes("model") && (lower.includes("not found") || lower.includes("does not exist"))) {
+    return "Model not found. Please check your model configuration.";
+  }
   if (lower.includes("billing") || lower.includes("payment")) {
     return "Billing issue. Please check your account billing status.";
   }
+  if (lower.includes("timeout") || lower.includes("timed out")) {
+    return "Request timed out. The provider did not respond in time.";
+  }
+  if (lower.includes("context_length") || lower.includes("too many tokens") || lower.includes("maximum context length")) {
+    return "Request too large. Please reduce the input length.";
+  }
 
-  // Return the actual error message for all other cases so users can diagnose
-  return errorDetail.length > 200 ? errorDetail.slice(0, 200) + "..." : errorDetail;
+  return "An error occurred while communicating with the API provider.";
 }
 
 function errorResponse(status: number, message: string): Response {
