@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-node
+.wrangler
+.git
+.env
+.env.*
+.dev.vars
+test
+coverage
+.vscode
+.idea
+*.md
+LICENSE
+*.log

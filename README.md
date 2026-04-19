@@ -8,7 +8,7 @@
 
 ## English
 
-A **Cloudflare Worker** proxy that lets **Claude Code** use any OpenAI-compatible API — with built-in **multi-provider routing**. One deployment routes different models to different providers (OpenAI, DeepSeek, GLM, Gemini, Anthropic, etc.) and handles API format conversion automatically.
+A proxy that lets **Claude Code** use any OpenAI-compatible API — with built-in **multi-provider routing**. Deploy on **Cloudflare Workers** or as a **Docker / Node.js** service. One deployment routes different models to different providers (OpenAI, DeepSeek, GLM, Gemini, Anthropic, etc.) and handles API format conversion automatically.
 
 ### ✨ Features
 
@@ -21,6 +21,7 @@ A **Cloudflare Worker** proxy that lets **Claude Code** use any OpenAI-compatibl
 - **Per-provider API keys** — `PROVIDER_<NAME>_API_KEY` as secrets, or client key passthrough
 - **Per-provider model mapping** — map Claude model names (opus/sonnet/haiku) to provider-specific models
 - Deployed on Cloudflare's global edge network with [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/) for region bypass
+- **Docker / Node.js deployment** — run as a native Node.js service without Cloudflare (single ~48 KB bundled file, zero runtime deps)
 - Constant-time API key comparison to prevent timing attacks
 - **Full backward compatibility** — legacy single-provider config still works
 
@@ -78,7 +79,18 @@ npm install
 npm run deploy
 ```
 
-**Option C: Local Development**
+**Option C: Docker (Node.js)**
+
+```bash
+git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
+cd claude-code-proxy-cf-workers
+cp .env.example .env   # Edit with your API keys
+docker compose up -d
+```
+
+The server runs at `http://localhost:3000`. See [Docker Deployment](#-docker-deployment-nodejs) for details.
+
+**Option D: Local Development**
 
 ```bash
 cp .env.example .dev.vars   # Edit with your API keys
@@ -480,22 +492,83 @@ OPENAI_API_KEY  = sk-xxx                  PROVIDER_GLM_API_KEY = sk-xxx  (secret
 | `AZURE_API_VERSION` | Azure OpenAI API version | — |
 | `CUSTOM_HEADERS` | Custom HTTP headers (JSON string) | — |
 
+### 🐳 Docker Deployment (Node.js)
+
+In addition to Cloudflare Workers, you can deploy this proxy as a native Node.js service using Docker — no Wrangler or Cloudflare account required.
+
+#### Quick Start
+
+```bash
+cp .env.example .env   # Edit with your API keys / PROVIDERS config
+docker compose up -d
+```
+
+The proxy will be available at `http://localhost:3000`.
+
+#### Environment Variables
+
+All the same environment variables from [Configuration Reference](#-configuration-reference) apply. Set them in your `.env` file or pass them directly:
+
+```bash
+docker compose up -d -e PROVIDERS='{"default":"openai"}' -e PROVIDER_OPENAI_API_KEY=sk-xxx
+```
+
+Extra Docker-specific variables:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PORT` | HTTP listen port | `3000` |
+| `HOST` | HTTP listen address | `0.0.0.0` |
+
+#### Manual Build (without Docker)
+
+```bash
+npm install
+npm run build:node       # Bundle to dist-node/server.mjs
+npm run start:node       # Start the Node.js server
+```
+
+#### Custom Docker Compose
+
+```yaml
+services:
+  claude-code-proxy:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      - PORT=3000
+      - PROVIDERS={"default":"openai","routing":{"deepseek-*":"deepseek"}}
+      - PROVIDER_OPENAI_API_KEY=sk-xxx
+      - PROVIDER_DEEPSEEK_API_KEY=sk-xxx
+      - ANTHROPIC_API_KEY=my-proxy-password
+    restart: unless-stopped
+```
+
+> **Note**: The Docker image is a multi-stage build — the final image contains only Node.js 20 Alpine and a single bundled JS file (~48 KB), with zero npm runtime dependencies.
+
+---
+
 ### 🛠️ Development
 
 ```bash
 npm install          # Install dependencies
-npm run dev          # Local dev server
+npm run dev          # Local dev server (Wrangler)
 npm run lint         # Type check
 npm run test         # Run tests
-npm run build        # Build (dry-run)
+npm run build        # Build Worker (dry-run)
 npm run deploy       # Deploy to Cloudflare Workers
+npm run build:node   # Bundle Node.js server
+npm run start:node   # Start Node.js server
 ```
 
 #### Project Structure
 
 ```
 src/
-├── index.ts                    # Worker entry & CORS
+├── app.ts                      # Core request handler (platform-agnostic)
+├── index.ts                    # Cloudflare Worker entry point
+├── node-server.ts              # Node.js HTTP server entry point
 ├── types.ts                    # TypeScript type definitions
 ├── config.ts                   # Config loading (legacy + multi-provider)
 ├── constants.ts                # Shared constants
@@ -545,7 +618,7 @@ src/
 
 ## 中文
 
-让 **Claude Code** 使用任意 OpenAI 兼容 API 的 **Cloudflare Worker** 代理 — 内置**多供应商路由**。一次部署即可将不同模型路由到不同供应商（OpenAI、DeepSeek、GLM、Gemini、Anthropic 等），自动处理 API 格式转换。
+让 **Claude Code** 使用任意 OpenAI 兼容 API 的代理 — 内置**多供应商路由**。支持部署到 **Cloudflare Workers** 或作为 **Docker / Node.js** 服务运行。一次部署即可将不同模型路由到不同供应商（OpenAI、DeepSeek、GLM、Gemini、Anthropic 等），自动处理 API 格式转换。
 
 ### ✨ 特性
 
@@ -558,6 +631,7 @@ src/
 - **每个供应商独立 API Key** — `PROVIDER_<NAME>_API_KEY` 作为密钥存储，或客户端 key 透传
 - **每个供应商独立模型映射** — 将 Claude 模型名 (opus/sonnet/haiku) 映射为供应商模型
 - 部署在 Cloudflare 全球边缘网络，启用 [Smart Placement](https://developers.cloudflare.com/workers/configuration/smart-placement/) 绕过区域限制
+- **Docker / Node.js 部署** — 无需 Cloudflare，作为原生 Node.js 服务运行（单个约 48 KB 打包文件，零运行时依赖）
 - API Key 常量时间比较，防止时序攻击
 - **完全向后兼容** — 旧的单供应商配置继续有效
 
@@ -614,7 +688,18 @@ npm install
 npm run deploy
 ```
 
-**方式 C：本地开发**
+**方式 C：Docker 部署（Node.js）**
+
+```bash
+git clone https://github.com/randomspace77/claude-code-proxy-cf-workers.git
+cd claude-code-proxy-cf-workers
+cp .env.example .env   # 编辑填入 API Key / PROVIDERS 配置
+docker compose up -d
+```
+
+服务默认运行在 `http://localhost:3000`。详见 [Docker 部署](#-docker-部署nodejs)。
+
+**方式 D：本地开发**
 
 ```bash
 cp .env.example .dev.vars   # 编辑填入 API Key
@@ -1016,22 +1101,83 @@ OPENAI_API_KEY  = sk-xxx                  PROVIDER_GLM_API_KEY = sk-xxx（密钥
 | `AZURE_API_VERSION` | Azure OpenAI API 版本 | — |
 | `CUSTOM_HEADERS` | 自定义 HTTP 头 (JSON) | — |
 
+### 🐳 Docker 部署（Node.js）
+
+除了 Cloudflare Workers，你还可以使用 Docker 将此代理部署为原生 Node.js 服务 — 无需 Wrangler 或 Cloudflare 账号。
+
+#### 快速开始
+
+```bash
+cp .env.example .env   # 编辑填入 API Key / PROVIDERS 配置
+docker compose up -d
+```
+
+服务运行在 `http://localhost:3000`。
+
+#### 环境变量
+
+所有[配置参考](#-配置参考)中的环境变量均适用，通过 `.env` 文件或直接传入：
+
+```bash
+docker compose up -d -e PROVIDERS='{"default":"openai"}' -e PROVIDER_OPENAI_API_KEY=sk-xxx
+```
+
+Docker 额外变量：
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | HTTP 监听端口 | `3000` |
+| `HOST` | HTTP 监听地址 | `0.0.0.0` |
+
+#### 手动构建（不使用 Docker）
+
+```bash
+npm install
+npm run build:node       # 打包为 dist-node/server.mjs
+npm run start:node       # 启动 Node.js 服务
+```
+
+#### 自定义 Docker Compose
+
+```yaml
+services:
+  claude-code-proxy:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      - PORT=3000
+      - PROVIDERS={"default":"openai","routing":{"deepseek-*":"deepseek"}}
+      - PROVIDER_OPENAI_API_KEY=sk-xxx
+      - PROVIDER_DEEPSEEK_API_KEY=sk-xxx
+      - ANTHROPIC_API_KEY=my-proxy-password
+    restart: unless-stopped
+```
+
+> **提示**：Docker 镜像采用多阶段构建 — 最终镜像仅包含 Node.js 20 Alpine 和一个打包后的 JS 文件（约 48 KB），零 npm 运行时依赖。
+
+---
+
 ### 🛠️ 开发
 
 ```bash
 npm install          # 安装依赖
-npm run dev          # 本地开发服务器
+npm run dev          # 本地开发服务器（Wrangler）
 npm run lint         # 类型检查
 npm run test         # 运行测试
-npm run build        # 构建 (dry-run)
+npm run build        # 构建 Worker (dry-run)
 npm run deploy       # 部署到 Cloudflare Workers
+npm run build:node   # 打包 Node.js 服务
+npm run start:node   # 启动 Node.js 服务
 ```
 
 #### 项目结构
 
 ```
 src/
-├── index.ts                    # Worker 入口 & CORS
+├── app.ts                      # 核心请求处理（平台无关）
+├── index.ts                    # Cloudflare Worker 入口
+├── node-server.ts              # Node.js HTTP 服务入口
 ├── types.ts                    # TypeScript 类型定义
 ├── config.ts                   # 配置加载（旧模式 + 多供应商）
 ├── constants.ts                # 共享常量
