@@ -50,11 +50,18 @@ export interface ClaudeContentBlockToolResult {
   content: string | Array<Record<string, unknown>> | Record<string, unknown>;
 }
 
+export interface ClaudeContentBlockThinking {
+  type: "thinking";
+  thinking: string;
+  signature: string;
+}
+
 export type ClaudeContentBlock =
   | ClaudeContentBlockText
   | ClaudeContentBlockImage
   | ClaudeContentBlockToolUse
-  | ClaudeContentBlockToolResult;
+  | ClaudeContentBlockToolResult
+  | ClaudeContentBlockThinking;
 
 export interface ClaudeSystemContent {
   type: "text";
@@ -73,7 +80,8 @@ export interface ClaudeTool {
 }
 
 export interface ClaudeThinkingConfig {
-  enabled: boolean;
+  type: string;
+  budget_tokens?: number;
 }
 
 export interface ClaudeMessagesRequest {
@@ -90,6 +98,7 @@ export interface ClaudeMessagesRequest {
   tools?: ClaudeTool[];
   tool_choice?: Record<string, unknown>;
   thinking?: ClaudeThinkingConfig;
+  output_config?: { effort?: string };
 }
 
 export interface ClaudeTokenCountRequest {
@@ -146,6 +155,8 @@ export interface OpenAIRequest {
   tools?: OpenAITool[];
   tool_choice?: string | { type: "function"; function: { name: string } };
   stream_options?: { include_usage: boolean };
+  thinking?: { type: string };
+  reasoning_effort?: string;
 }
 
 export interface OpenAIChoice {

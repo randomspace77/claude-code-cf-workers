@@ -11,6 +11,67 @@ import type {
   OpenAITool,
 } from "../types";
 
+const PLACEHOLDER_REASONING =
+  "Compatibility bridge placeholder reasoning for prior assistant history.";
+
+function isDeepSeekModel(model: string): boolean {
+  return /(^|[-_/])deepseek/i.test(model);
+}
+
+function thinkingFromAnthropicContent(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (block) =>
+        block &&
+        block.type === Constants.CONTENT_THINKING &&
+        typeof (block as Record<string, unknown>).thinking === "string",
+    )
+    .map((block) => (block as Record<string, unknown>).thinking as string)
+    .filter(Boolean)
+    .join("\n");
+}
+
+function reasoningEffortFromOutputConfig(
+  outputConfig: { effort?: string } | undefined,
+): string | undefined {
+  const effort = outputConfig && typeof outputConfig === "object" ? outputConfig.effort : undefined;
+  if (typeof effort !== "string") return undefined;
+  const normalized = effort.toLowerCase();
+  if (normalized === "max" || normalized === "xhigh") return "max";
+  if (normalized === "high" || normalized === "medium" || normalized === "low") return "high";
+  return undefined;
+}
+
+function thinkingToOpenAi(
+  thinking: { type: string; budget_tokens?: number } | undefined,
+): { type: string } | undefined {
+  if (!thinking || typeof thinking !== "object") return undefined;
+  if (thinking.type === "enabled" || thinking.type === "disabled") {
+    return { type: thinking.type };
+  }
+  return undefined;
+}
+
+/**
+ * DeepSeek reasoner rejects forced tool_choice. Convert "any" / "tool"
+ * to a system instruction instead, so the model still knows it must call.
+ */
+function buildToolChoiceInstruction(
+  toolChoice: Record<string, unknown> | undefined,
+  model: string,
+): string | null {
+  if (!toolChoice || typeof toolChoice !== "object") return null;
+  if (!isDeepSeekModel(model)) return null;
+  if (toolChoice.type === "any") {
+    return "The caller requires a tool call for this turn. Call one of the available tools instead of answering directly.";
+  }
+  if (toolChoice.type === "tool" && typeof toolChoice.name === "string") {
+    return `The caller requires a tool call for this turn. Call the available tool named ${JSON.stringify(toolChoice.name)} instead of answering directly.`;
+  }
+  return null;
+}
+
 /**
  * Convert a Claude Messages API request into an OpenAI Chat Completions
  * request. Model mapping is handled by the provider layer before this is called.
@@ -34,31 +95,46 @@ export function convertClaudeToOpenAI(
     }
   }
 
+  // Build tool_choice system instruction for DeepSeek models (which reject forced tool_choice)
+  const toolChoiceInstruction = buildToolChoiceInstruction(claudeRequest.tool_choice, openaiModel);
+
   // Process messages
   let i = 0;
+  let prevAssistantHadToolCall = false;
   while (i < claudeRequest.messages.length) {
     const msg = claudeRequest.messages[i];
 
     if (msg.role === Constants.ROLE_USER) {
-      openaiMessages.push(convertUserMessage(msg));
-    } else if (msg.role === Constants.ROLE_ASSISTANT) {
-      openaiMessages.push(convertAssistantMessage(msg));
+      const blocks = Array.isArray(msg.content) ? msg.content : [];
+      const toolResults = blocks.filter(
+        (block) => "type" in block && block.type === Constants.CONTENT_TOOL_RESULT,
+      );
 
-      // Check if next message contains tool results
-      if (i + 1 < claudeRequest.messages.length) {
-        const nextMsg = claudeRequest.messages[i + 1];
-        if (
-          nextMsg.role === Constants.ROLE_USER &&
-          Array.isArray(nextMsg.content) &&
-          nextMsg.content.some(
-            (block) => "type" in block && block.type === Constants.CONTENT_TOOL_RESULT,
-          )
-        ) {
-          i += 1;
-          const toolResults = convertToolResults(nextMsg);
-          openaiMessages.push(...toolResults);
+      if (!toolResults.length) {
+        prevAssistantHadToolCall = false;
+        // Normal user message (text, multimodal, or null content)
+        openaiMessages.push(convertUserMessage(msg));
+      } else {
+        // User message with tool_results: push text portion (if any) as user,
+        // then tool_results as tool-role messages
+        const textBlocks = blocks.filter(
+          (block) => block.type === Constants.CONTENT_TEXT,
+        );
+        if (textBlocks.length > 0) {
+          openaiMessages.push(convertUserMessage(msg));
+        }
+        if (prevAssistantHadToolCall) {
+          const toolMessages = convertToolResultsInternal(toolResults);
+          openaiMessages.push(...toolMessages);
         }
       }
+    } else if (msg.role === Constants.ROLE_ASSISTANT) {
+      const hasToolUses =
+        Array.isArray(msg.content) &&
+        msg.content.some((block) => "type" in block && block.type === Constants.CONTENT_TOOL_USE);
+      const assistant = convertAssistantMessage(msg, openaiModel, prevAssistantHadToolCall);
+      openaiMessages.push(assistant);
+      prevAssistantHadToolCall = hasToolUses;
     }
 
     i += 1;
@@ -104,18 +180,42 @@ export function convertClaudeToOpenAI(
     }
   }
 
-  // Convert tool choice
+  // Convert tool choice (DeepSeek models reject forced tool_choice — softened to system instruction)
   if (claudeRequest.tool_choice) {
     const choiceType = claudeRequest.tool_choice.type as string | undefined;
-    if (choiceType === "auto" || choiceType === "any") {
+    if (choiceType === "auto") {
       openaiRequest.tool_choice = "auto";
+    } else if (isDeepSeekModel(openaiModel)) {
+      // DeepSeek reasoner rejects forced tool_choice — handled via system instruction instead
+      openaiRequest.tool_choice = undefined;
+    } else if (choiceType === "any") {
+      openaiRequest.tool_choice = "required";
     } else if (choiceType === "tool" && claudeRequest.tool_choice.name) {
       openaiRequest.tool_choice = {
         type: "function",
         function: { name: claudeRequest.tool_choice.name as string },
       };
+    }
+  }
+
+  // DeepSeek-specific: map thinking and reasoning_effort fields
+  if (isDeepSeekModel(openaiModel)) {
+    const thinking = thinkingToOpenAi(claudeRequest.thinking);
+    if (thinking) openaiRequest.thinking = thinking;
+    const effort = reasoningEffortFromOutputConfig(claudeRequest.output_config);
+    if (effort) openaiRequest.reasoning_effort = effort;
+  }
+
+  // Clean up undefined fields
+  if (openaiRequest.tool_choice === undefined) delete openaiRequest.tool_choice;
+
+  // Inject tool_choice system instruction for DeepSeek models
+  if (toolChoiceInstruction) {
+    const sysMsg = openaiMessages.find((m) => m.role === "system");
+    if (sysMsg && typeof sysMsg.content === "string") {
+      sysMsg.content = sysMsg.content + "\n\n" + toolChoiceInstruction;
     } else {
-      openaiRequest.tool_choice = "auto";
+      openaiMessages.unshift({ role: "system", content: toolChoiceInstruction });
     }
   }
 
@@ -170,7 +270,11 @@ function convertUserMessage(msg: ClaudeMessage): OpenAIMessage {
   return { role: "user", content: parts };
 }
 
-function convertAssistantMessage(msg: ClaudeMessage): OpenAIMessage {
+function convertAssistantMessage(
+  msg: ClaudeMessage,
+  model: string,
+  hasToolCall = false,
+): OpenAIMessage {
   if (msg.content === null || msg.content === undefined) {
     return { role: "assistant", content: null };
   }
@@ -212,27 +316,35 @@ function convertAssistantMessage(msg: ClaudeMessage): OpenAIMessage {
     result.tool_calls = toolCalls;
   }
 
+  // Inject reasoning_content for DeepSeek models from thinking blocks in history
+  if (isDeepSeekModel(model)) {
+    const thinking = thinkingFromAnthropicContent(msg.content);
+    if (thinking) {
+      result.reasoning_content = thinking;
+    } else if (toolCalls.length > 0 || hasToolCall) {
+      result.reasoning_content = PLACEHOLDER_REASONING;
+    }
+  }
+
   return result;
 }
 
-function convertToolResults(msg: ClaudeMessage): OpenAIMessage[] {
+function convertToolResultsInternal(
+  toolResults: ClaudeContentBlock[],
+): OpenAIMessage[] {
   const toolMessages: OpenAIMessage[] = [];
 
-  if (!Array.isArray(msg.content)) return toolMessages;
-
-  for (const block of msg.content) {
-    if (block.type === Constants.CONTENT_TOOL_RESULT) {
-      const toolResult = block as {
-        type: "tool_result";
-        tool_use_id: string;
-        content: unknown;
-      };
-      toolMessages.push({
-        role: "tool",
-        tool_call_id: toolResult.tool_use_id,
-        content: parseToolResultContent(toolResult.content),
-      });
-    }
+  for (const block of toolResults) {
+    const toolResult = block as {
+      type: "tool_result";
+      tool_use_id: string;
+      content: unknown;
+    };
+    toolMessages.push({
+      role: "tool",
+      tool_call_id: toolResult.tool_use_id,
+      content: parseToolResultContent(toolResult.content),
+    });
   }
 
   return toolMessages;

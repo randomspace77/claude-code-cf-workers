@@ -272,7 +272,7 @@ describe("Request Conversion", () => {
     expect(toolMsg.content).toBe("Sunny, 72°F");
   });
 
-  it("converts tool_choice type 'any' to 'auto'", () => {
+  it("converts tool_choice type 'any' to 'required' (for non-DeepSeek models)", () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -288,7 +288,30 @@ describe("Request Conversion", () => {
     };
 
     const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
-    expect(result.tool_choice).toBe("auto");
+    expect(result.tool_choice).toBe("required");
+  });
+
+  it("converts tool_choice type 'any' to undefined for DeepSeek models (softened)", () => {
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "deepseek-v4-pro[1m]",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "Hi" }],
+      tools: [
+        {
+          name: "test_tool",
+          description: "A test tool",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      tool_choice: { type: "any" },
+    };
+
+    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    expect(result.tool_choice).toBeUndefined();
+    // Should have injected a system instruction instead
+    const sysMsg = result.messages.find((m) => m.role === "system");
+    expect(sysMsg).toBeDefined();
+    expect(sysMsg!.content).toContain("requires a tool call");
   });
 
   it("converts tool_choice with specific tool name", () => {

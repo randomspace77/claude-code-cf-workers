@@ -1,0 +1,84 @@
+{
+  "//": "DeepSeek V4 via OpenCode Go — Configuration Reference",
+  "",
+  "//============================================================": "",
+  "// 1. Cloudflare Dashboard → Settings → Variables and Secrets": "",
+  "//============================================================": "",
+  "",
+  "// ---- Variables (Dashboard → Variables) ----": "",
+  "",
+  "PROVIDERS": "{ \"default\": \"opencode\", \"routing\": { \"deepseek*\": \"opencode\" }, \"providers\": { \"opencode\": {} } }",
+  "",
+  "LOG_LEVEL": "WARNING",
+  "MAX_TOKENS_LIMIT": "16384",
+  "MIN_TOKENS_LIMIT": "4096",
+  "REQUEST_TIMEOUT": "600",
+  "",
+  "// ---- Secrets (Dashboard → Secrets or wrangler secret put) ----": "",
+  "",
+  "ANTHROPIC_API_KEY": "sk-opencode-go-key",
+  "PROVIDER_OPENCODE_API_KEY": "sk-opencode-go-key",
+  "",
+  "//============================================================": "",
+  "// 2. Claude Code settings (~/.claude/settings.json or": "",
+  "//    project .claude/settings.json)": "",
+  "//============================================================": "",
+  "",
+  "claudeSettings": {
+    "env": {
+      "ANTHROPIC_BASE_URL": "https://your-worker-name.workers.dev",
+      "ANTHROPIC_API_KEY": "sk-opencode-go-key",
+      "API_TIMEOUT_MS": "3000000",
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+      "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+      "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash",
+      "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro[1m]",
+      "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro[1m]",
+      "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+      "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-pro[1m]",
+      "CLAUDE_CODE_EFFORT_LEVEL": "max"
+    }
+  },
+
+  "//============================================================": "",
+  "// 3. Node.js standalone (dist-node) — environment variables": "",
+  "//============================================================": "",
+
+  "nodeEnv": {
+    "PROVIDERS": "{\"default\":\"opencode\",\"routing\":{\"deepseek*\":\"opencode\"},\"providers\":{\"opencode\":{}}}",
+    "PROVIDER_OPENCODE_API_KEY": "sk-opencode-go-key",
+    "ANTHROPIC_API_KEY": "sk-opencode-go-key",
+    "LOG_LEVEL": "WARNING",
+    "REQUEST_TIMEOUT": "600",
+    "PORT": "8787"
+  },
+
+  "//============================================================": "",
+  "// 4. PROVIDERS JSON explained (pretty-printed)": "",
+  "//============================================================": "",
+
+  "providersJsonPretty": {
+    "default": "opencode",
+    "routing": {
+      "deepseek*": "opencode"
+    },
+    "providers": {
+      "opencode": {}
+    }
+  },
+
+  "//============================================================": "",
+  "// NOTES": "",
+  "//============================================================": "",
+  "// - opencode provider uses the known base URL https://opencode.ai/zen/go/v1": "",
+  "//   and protocol \"openai\" — no need to specify in the config": "",
+  "// - ANTHROPIC_API_KEY is the key clients send to authenticate against": "",
+  "//   the proxy. Set it to your OpenCode Go key (the proxy passes it upstream)": "",
+  "// - PROVIDER_OPENCODE_API_KEY is the key the proxy uses to call": "",
+  "//   OpenCode Go. When not set, it falls back to the client's key.": "",
+  "// - REQUEST_TIMEOUT is bumped to 600s (10 min) because DeepSeek V4": "",
+  "//   reasoning can take a long time with large contexts": "",
+  "// - deepseek-v4-flash is used as the haiku/small model for faster": "",
+  "//   lightweight tasks; deepseek-v4-pro[1m] handles heavy lifting": ""
+}
