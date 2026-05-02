@@ -15,8 +15,8 @@ import { getAssistantReasoning, getToolReasoning } from "./reasoning-cache";
 const PLACEHOLDER_REASONING =
   "Compatibility bridge placeholder reasoning for prior assistant history.";
 
-function isDeepSeekModel(model: string): boolean {
-  return /(^|[-_/])deepseek/i.test(model);
+function needsReasoningReplay(model: string): boolean {
+  return /(^|[-_/])(deepseek|kimi)/i.test(model);
 }
 
 function thinkingFromAnthropicContent(content: unknown): string {
@@ -33,15 +33,20 @@ function thinkingFromAnthropicContent(content: unknown): string {
     .join("\n");
 }
 
-function reasoningEffortFromOutputConfig(
-  outputConfig: { effort?: string } | undefined,
-): string | undefined {
-  const effort = outputConfig && typeof outputConfig === "object" ? outputConfig.effort : undefined;
+function normalizeReasoningEffort(effort: unknown): string | undefined {
   if (typeof effort !== "string") return undefined;
   const normalized = effort.toLowerCase();
   if (normalized === "max" || normalized === "xhigh") return "max";
   if (normalized === "high" || normalized === "medium" || normalized === "low") return "high";
   return undefined;
+}
+
+function reasoningEffortFromRequest(
+  requestEffort: string | undefined,
+  outputConfig: { effort?: string } | undefined,
+): string | undefined {
+  return normalizeReasoningEffort(requestEffort) ??
+    normalizeReasoningEffort(outputConfig && typeof outputConfig === "object" ? outputConfig.effort : undefined);
 }
 
 function thinkingToOpenAi(
@@ -54,8 +59,15 @@ function thinkingToOpenAi(
   return undefined;
 }
 
+function reasoningEffortForReplayModel(
+  requestEffort: string | undefined,
+  outputConfig: { effort?: string } | undefined,
+): string | undefined {
+  return reasoningEffortFromRequest(requestEffort, outputConfig);
+}
+
 /**
- * DeepSeek reasoner rejects forced tool_choice. Convert "any" / "tool"
+ * Some reasoning models reject forced tool_choice. Convert "any" / "tool"
  * to a system instruction instead, so the model still knows it must call.
  */
 function buildToolChoiceInstruction(
@@ -63,7 +75,7 @@ function buildToolChoiceInstruction(
   model: string,
 ): string | null {
   if (!toolChoice || typeof toolChoice !== "object") return null;
-  if (!isDeepSeekModel(model)) return null;
+  if (!needsReasoningReplay(model)) return null;
   if (toolChoice.type === "any") {
     return "The caller requires a tool call for this turn. Call one of the available tools instead of answering directly.";
   }
@@ -96,7 +108,7 @@ export async function convertClaudeToOpenAI(
     }
   }
 
-  // Build tool_choice system instruction for DeepSeek models (which reject forced tool_choice)
+  // Build tool_choice system instruction for models which reject forced tool_choice
   const toolChoiceInstruction = buildToolChoiceInstruction(claudeRequest.tool_choice, openaiModel);
 
   // Process messages
@@ -175,13 +187,13 @@ export async function convertClaudeToOpenAI(
     }
   }
 
-  // Convert tool choice (DeepSeek models reject forced tool_choice — softened to system instruction)
+  // Convert tool choice (some reasoning models reject forced tool_choice — softened to system instruction)
   if (claudeRequest.tool_choice) {
     const choiceType = claudeRequest.tool_choice.type as string | undefined;
     if (choiceType === "auto") {
       openaiRequest.tool_choice = "auto";
-    } else if (isDeepSeekModel(openaiModel)) {
-      // DeepSeek reasoner rejects forced tool_choice — handled via system instruction instead
+    } else if (needsReasoningReplay(openaiModel)) {
+      // The model rejects forced tool_choice — handled via system instruction instead
       openaiRequest.tool_choice = undefined;
     } else if (choiceType === "any") {
       openaiRequest.tool_choice = "required";
@@ -193,18 +205,18 @@ export async function convertClaudeToOpenAI(
     }
   }
 
-  // DeepSeek-specific: map thinking and reasoning_effort fields
-  if (isDeepSeekModel(openaiModel)) {
+  // Reasoning-model-specific: map thinking and reasoning_effort fields
+  if (needsReasoningReplay(openaiModel)) {
     const thinking = thinkingToOpenAi(claudeRequest.thinking);
     if (thinking) openaiRequest.thinking = thinking;
-    const effort = reasoningEffortFromOutputConfig(claudeRequest.output_config);
+    const effort = reasoningEffortForReplayModel(claudeRequest.effort, claudeRequest.output_config);
     if (effort) openaiRequest.reasoning_effort = effort;
   }
 
   // Clean up undefined fields
   if (openaiRequest.tool_choice === undefined) delete openaiRequest.tool_choice;
 
-  // Inject tool_choice system instruction for DeepSeek models
+  // Inject tool_choice system instruction for models that need it
   if (toolChoiceInstruction) {
     const sysMsg = openaiMessages.find((m) => m.role === "system");
     if (sysMsg && typeof sysMsg.content === "string") {
@@ -347,8 +359,8 @@ async function convertAssistantMessage(
     result.tool_calls = toolCalls;
   }
 
-  // Inject reasoning_content for DeepSeek models from thinking blocks in history
-  if (isDeepSeekModel(model)) {
+  // Inject reasoning_content for models that require reasoning history replay
+  if (needsReasoningReplay(model)) {
     const thinking = thinkingFromAnthropicContent(msg.content);
     if (thinking) {
       result.reasoning_content = thinking;

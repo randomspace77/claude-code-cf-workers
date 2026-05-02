@@ -81,16 +81,22 @@ export function mapModelForProvider(
   claudeModel: string,
 ): string {
   if (!provider.modelMapping || Object.keys(provider.modelMapping).length === 0) {
-    return claudeModel;
+    return normalizeModelAlias(claudeModel);
   }
 
   const lower = claudeModel.toLowerCase();
   for (const [keyword, mappedModel] of Object.entries(provider.modelMapping)) {
     if (lower.includes(keyword.toLowerCase())) {
-      return mappedModel;
+      return normalizeModelAlias(mappedModel);
     }
   }
 
   // If no mapping matched, return as-is
-  return claudeModel;
+  return normalizeModelAlias(claudeModel);
+}
+
+function normalizeModelAlias(model: string): string {
+  const match = model.toLowerCase().match(/^(deepseek-v4-(?:pro|flash))\[1m\]$/);
+  if (match) return match[1];
+  return model;
 }

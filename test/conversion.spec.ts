@@ -368,6 +368,28 @@ describe("Request Conversion", () => {
     expect(sysMsg!.content).toContain("requires a tool call");
   });
 
+  it("converts tool_choice type 'any' to undefined for Kimi models (softened)", async () => {
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "kimi-k2.6",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "Hi" }],
+      tools: [
+        {
+          name: "test_tool",
+          description: "A test tool",
+          input_schema: { type: "object", properties: {} },
+        },
+      ],
+      tool_choice: { type: "any" },
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
+    expect(result.tool_choice).toBeUndefined();
+    const sysMsg = result.messages.find((m) => m.role === "system");
+    expect(sysMsg).toBeDefined();
+    expect(sysMsg!.content).toContain("requires a tool call");
+  });
+
   it("replays cached DeepSeek reasoning_content for historical tool calls", async () => {
     const config = { ...defaultConfig, reasoningCache: createTestKV() };
     await setToolReasoning(config, "deepseek-v4-pro[1m]", "tool_1", "cached reasoning for tool_1");
@@ -403,6 +425,72 @@ describe("Request Conversion", () => {
 
     const result = await convertClaudeToOpenAI(claudeReq, config);
     expect(result.messages[1].reasoning_content).toBe("cached reasoning for tool_1");
+  });
+
+  it("replays cached Kimi reasoning_content for historical tool calls", async () => {
+    const config = { ...defaultConfig, reasoningCache: createTestKV() };
+    await setToolReasoning(config, "kimi-k2.6", "tool_1", "cached kimi reasoning");
+
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "kimi-k2.6",
+      max_tokens: 100,
+      messages: [
+        { role: "user", content: "Read a file" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "Read",
+              input: { file_path: "README.md" },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, config);
+    expect(result.messages[1].reasoning_content).toBe("cached kimi reasoning");
+  });
+
+  it("passes through Claude effort as DeepSeek reasoning_effort", async () => {
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "deepseek-v4-pro",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "Think hard" }],
+      effort: "max",
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
+
+    expect(result.reasoning_effort).toBe("max");
+  });
+
+  it("maps Claude xhigh effort to DeepSeek max reasoning_effort", async () => {
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "deepseek-v4-pro",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "Think hard" }],
+      effort: "xhigh",
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
+
+    expect(result.reasoning_effort).toBe("max");
+  });
+
+  it("passes through Claude effort for Kimi reasoning models", async () => {
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "kimi-k2.6",
+      max_tokens: 100,
+      messages: [{ role: "user", content: "Think hard" }],
+      effort: "max",
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
+
+    expect(result.reasoning_effort).toBe("max");
   });
 
   it("converts tool_choice with specific tool name", async () => {

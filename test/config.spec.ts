@@ -482,6 +482,11 @@ describe("mapModelForProvider", () => {
     expect(mapModelForProvider(provider, "gpt-4o")).toBe("gpt-4o");
   });
 
+  it("normalizes DeepSeek 1m alias for upstream providers", () => {
+    expect(mapModelForProvider(provider, "deepseek-v4-pro[1m]")).toBe("deepseek-v4-pro");
+    expect(mapModelForProvider(provider, "deepseek-v4-flash[1m]")).toBe("deepseek-v4-flash");
+  });
+
   it("maps models when mapping is configured", () => {
     const mapped = {
       ...provider,

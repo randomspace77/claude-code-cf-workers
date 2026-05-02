@@ -50,7 +50,7 @@ async function getReasoning(
   try {
     return (await config.reasoningCache.get(await cacheKey(kind, model, value))) ?? undefined;
   } catch (err) {
-    console.warn("Failed to read DeepSeek reasoning cache:", err);
+    console.warn("Failed to read reasoning cache:", err);
     return undefined;
   }
 }
@@ -68,13 +68,13 @@ async function setReasoning(
       expirationTtl: config.reasoningCacheTtlSeconds ?? 2592000,
     });
   } catch (err) {
-    console.warn("Failed to write DeepSeek reasoning cache:", err);
+    console.warn("Failed to write reasoning cache:", err);
   }
 }
 
 async function cacheKey(kind: CacheKind, model: string, value: string): Promise<string> {
   const digest = await sha256(`${model}\0${value}`);
-  return `deepseek-reasoning:${kind}:${digest}`;
+  return `reasoning:${kind}:${digest}`;
 }
 
 async function sha256(value: string): Promise<string> {

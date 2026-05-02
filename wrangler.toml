@@ -25,7 +25,7 @@ invocation_logs = true
 [observability.traces]
 enabled = false
 
-# DeepSeek V4 reasoning_content replay cache.
+# Reasoning model reasoning_content replay cache.
 # Create a Workers KV namespace, then uncomment this block and fill in its id:
 #
 #   wrangler kv namespace create REASONING_CACHE
