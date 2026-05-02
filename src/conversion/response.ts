@@ -1,21 +1,25 @@
 import { Constants } from "../constants";
 import type {
+  AppConfig,
   ClaudeMessagesRequest,
   OpenAIResponse,
   OpenAIStreamChunk,
 } from "../types";
 import { parseSSEChunk } from "../client";
+import { setAssistantReasoning, setToolReasoning } from "./reasoning-cache";
 
 // ---- Non-streaming conversion ----
 
 /**
  * Convert an OpenAI chat completion response into a Claude Messages response.
  */
-export function convertOpenAIToClaude(
+export async function convertOpenAIToClaude(
   openaiResponse: OpenAIResponse,
   originalRequest: ClaudeMessagesRequest,
+  config: AppConfig,
   logLevel?: string,
-): Record<string, unknown> {
+  cacheModel = openaiResponse.model || originalRequest.model,
+): Promise<Record<string, unknown>> {
   const choices = openaiResponse.choices ?? [];
   if (choices.length === 0) {
     throw new Error("No choices in OpenAI response");
@@ -25,6 +29,8 @@ export function convertOpenAIToClaude(
   const message = choice.message;
   const debug = logLevel === "DEBUG";
 
+  const reasoning = reasoningFromMessage(message);
+
   if (debug) {
     // Full response metadata + raw content in DEBUG mode
     console.log({
@@ -32,18 +38,18 @@ export function convertOpenAIToClaude(
       has_content: message?.content !== null && message?.content !== undefined,
       content_type: typeof message?.content,
       content_length: typeof message?.content === "string" ? message.content.length : 0,
-      has_reasoning: Boolean(message?.reasoning_content),
-      reasoning_length: typeof message?.reasoning_content === "string" ? message.reasoning_content.length : 0,
+      has_reasoning: Boolean(reasoning),
+      reasoning_length: reasoning.length,
       tool_calls_count: message?.tool_calls?.length ?? 0,
       finish_reason: choice.finish_reason,
       usage: openaiResponse.usage,
       content: message?.content,
-      reasoning_content: message?.reasoning_content,
+      reasoning_content: reasoning,
     });
   } else {
     // WARNING level: only log anomalies
     const hasContent = message?.content !== null && message?.content !== undefined && message?.content !== "";
-    const hasReasoning = Boolean(message?.reasoning_content);
+    const hasReasoning = Boolean(reasoning);
     const hasToolCalls = (message?.tool_calls?.length ?? 0) > 0;
     if (!hasContent && !hasReasoning && !hasToolCalls) {
       console.warn({
@@ -58,15 +64,18 @@ export function convertOpenAIToClaude(
   const contentBlocks: Record<string, unknown>[] = [];
 
   // Reasoning/thinking content (e.g. from GLM 5.1 thinking mode)
-  if (message?.reasoning_content) {
+  if (reasoning) {
     contentBlocks.push({
       type: Constants.CONTENT_THINKING,
-      thinking: message.reasoning_content,
+      thinking: reasoning,
     });
   }
 
   // Text content
   if (message?.content !== null && message?.content !== undefined) {
+    if (reasoning) {
+      await setAssistantReasoning(config, cacheModel, message.content, reasoning);
+    }
     contentBlocks.push({
       type: Constants.CONTENT_TEXT,
       text: message.content,
@@ -77,6 +86,9 @@ export function convertOpenAIToClaude(
   if (message?.tool_calls) {
     for (const toolCall of message.tool_calls) {
       if (toolCall.type === Constants.TOOL_FUNCTION) {
+        if (reasoning) {
+          await setToolReasoning(config, cacheModel, toolCall.id, reasoning);
+        }
         let args: Record<string, unknown>;
         try {
           args = JSON.parse(toolCall.function.arguments ?? "{}");
@@ -135,7 +147,9 @@ export function convertOpenAIToClaude(
 export function convertOpenAIStreamToClaude(
   openaiStream: ReadableStream<string>,
   originalRequest: ClaudeMessagesRequest,
+  config: AppConfig,
   logLevel?: string,
+  cacheModel = originalRequest.model,
 ): ReadableStream<string> {
   const debug = logLevel === "DEBUG";
   const messageId = `msg_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
@@ -164,6 +178,8 @@ export function convertOpenAIStreamToClaude(
     input_tokens: 0,
     output_tokens: 0,
   };
+  let reasoningContent = "";
+  let textContent = "";
 
   const reader = openaiStream.getReader();
 
@@ -198,7 +214,7 @@ export function convertOpenAIStreamToClaude(
         while (true) {
           const { done, value: line } = await reader.read();
           if (done) {
-            emitFinalEvents(controller);
+            await emitFinalEvents(controller);
             controller.close();
             return;
           }
@@ -207,7 +223,7 @@ export function convertOpenAIStreamToClaude(
           if (!chunk) {
             // Check for [DONE]
             if (line.includes("[DONE]")) {
-              emitFinalEvents(controller);
+              await emitFinalEvents(controller);
               controller.close();
               return;
             }
@@ -234,12 +250,13 @@ export function convertOpenAIStreamToClaude(
 
           // Log streaming deltas when DEBUG is enabled
           if (debug) {
-            if (delta.reasoning_content !== null && delta.reasoning_content !== undefined) {
+            const reasoningDelta = reasoningFromMessage(delta);
+            if (reasoningDelta) {
               console.log({
                 _tag: "stream-delta",
                 type: "reasoning",
-                length: delta.reasoning_content.length,
-                content: delta.reasoning_content,
+                length: reasoningDelta.length,
+                content: reasoningDelta,
               });
             }
             if (delta.content !== null && delta.content !== undefined) {
@@ -260,7 +277,9 @@ export function convertOpenAIStreamToClaude(
           }
 
           // Reasoning/thinking delta (e.g. from GLM 5.1)
-          if (delta.reasoning_content !== null && delta.reasoning_content !== undefined) {
+          const reasoningDelta = reasoningFromMessage(delta);
+          if (reasoningDelta) {
+            reasoningContent += reasoningDelta;
             if (!thinkingBlockStarted) {
               thinkingBlockIndex = nextBlockIndex++;
               thinkingBlockStarted = true;
@@ -278,7 +297,7 @@ export function convertOpenAIStreamToClaude(
                 index: thinkingBlockIndex,
                 delta: {
                   type: Constants.DELTA_THINKING,
-                  thinking: delta.reasoning_content,
+                  thinking: reasoningDelta,
                 },
               }),
             );
@@ -287,6 +306,7 @@ export function convertOpenAIStreamToClaude(
 
           // Text delta
           if (delta.content !== null && delta.content !== undefined) {
+            textContent += delta.content;
             if (!textBlockStarted) {
               // Close thinking block first if it was open
               if (thinkingBlockStarted) {
@@ -436,7 +456,7 @@ export function convertOpenAIStreamToClaude(
     },
   });
 
-  function emitFinalEvents(controller: ReadableStreamDefaultController<string>) {
+  async function emitFinalEvents(controller: ReadableStreamDefaultController<string>) {
     if (debug) {
       console.log({
         _tag: "stream-final-state",
@@ -510,10 +530,44 @@ export function convertOpenAIStreamToClaude(
         type: Constants.EVENT_MESSAGE_STOP,
       }),
     );
+
+    if (reasoningContent) {
+      if (textContent) {
+        await setAssistantReasoning(config, cacheModel, textContent, reasoningContent);
+      }
+      await Promise.all(
+        [...currentToolCalls.values()].map((toolData) =>
+          setToolReasoning(config, cacheModel, toolData.id, reasoningContent),
+        ),
+      );
+    }
   }
 }
 
 /** Format a single SSE frame. */
 function sseFrame(event: string, data: Record<string, unknown>): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function reasoningFromMessage(message: unknown): string {
+  if (!message || typeof message !== "object") return "";
+  const record = message as Record<string, unknown>;
+  if (typeof record.reasoning_content === "string") return record.reasoning_content;
+  if (typeof record.reasoning === "string") return record.reasoning;
+  if (
+    record.reasoning &&
+    typeof record.reasoning === "object" &&
+    typeof (record.reasoning as Record<string, unknown>).content === "string"
+  ) {
+    return (record.reasoning as Record<string, unknown>).content as string;
+  }
+  if (typeof record.thinking === "string") return record.thinking;
+  if (
+    record.thinking &&
+    typeof record.thinking === "object" &&
+    typeof (record.thinking as Record<string, unknown>).content === "string"
+  ) {
+    return (record.thinking as Record<string, unknown>).content as string;
+  }
+  return "";
 }

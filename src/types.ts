@@ -1,5 +1,14 @@
 /** Type definitions for the Claude-to-OpenAI proxy */
 
+export interface ReasoningCacheNamespace {
+  get(key: string): Promise<string | null>;
+  put(
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ): Promise<void>;
+}
+
 // ---- Environment / Cloudflare bindings ----
 
 export interface Env {
@@ -18,7 +27,9 @@ export interface Env {
   PASSTHROUGH_MODELS?: string; // Comma-separated model prefixes for Anthropic passthrough
   ENABLE_MODEL_MAPPING?: string; // "true" to enable Claude→provider model mapping
   PROVIDERS?: string; // JSON string of multi-provider config
-  [key: string]: string | undefined; // Allow dynamic PROVIDER_<NAME>_API_KEY access
+  REASONING_CACHE?: ReasoningCacheNamespace; // KV namespace for DeepSeek reasoning_content replay
+  REASONING_CACHE_TTL_SECONDS?: string; // Optional KV TTL, defaults to 30 days
+  [key: string]: string | ReasoningCacheNamespace | undefined; // Allow dynamic PROVIDER_<NAME>_API_KEY access
 }
 
 // ---- Claude API types ----
@@ -225,6 +236,8 @@ export interface AppConfig {
   requestTimeout: number;
   maxTokensLimit: number;
   minTokensLimit: number;
+  reasoningCache?: ReasoningCacheNamespace;
+  reasoningCacheTtlSeconds?: number;
 
   // Multi-provider
   defaultProvider: string;

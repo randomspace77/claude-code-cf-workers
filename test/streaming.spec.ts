@@ -1,6 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { convertOpenAIStreamToClaude } from "../src/conversion/response";
-import type { ClaudeMessagesRequest } from "../src/types";
+import type { ClaudeMessagesRequest, AppConfig } from "../src/types";
+
+const defaultConfig: AppConfig = {
+  openaiApiKey: "test-key",
+  openaiBaseUrl: "https://api.openai.com/v1",
+  bigModel: "gpt-4o",
+  middleModel: "gpt-4o",
+  smallModel: "gpt-4o-mini",
+  maxTokensLimit: 16384,
+  minTokensLimit: 4096,
+  reasoningCacheTtlSeconds: 2592000,
+  requestTimeout: 90,
+  logLevel: "WARNING",
+  customHeaders: {},
+  passthroughModels: [],
+  enableModelMapping: false,
+  defaultProvider: "default",
+  routing: {},
+  providers: {},
+};
 
 /**
  * Helper to create a ReadableStream of SSE lines from an array of strings.
@@ -66,7 +85,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -117,7 +136,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -169,7 +188,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -208,7 +227,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -228,7 +247,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -242,7 +261,7 @@ describe("convertOpenAIStreamToClaude", () => {
     const openaiLines = ["data: [DONE]"];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -267,7 +286,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 
@@ -301,7 +320,7 @@ describe("convertOpenAIStreamToClaude", () => {
     ];
 
     const stream = makeSSEStream(openaiLines);
-    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest);
+    const claudeStream = convertOpenAIStreamToClaude(stream, originalRequest, defaultConfig);
     const frames = await collectFrames(claudeStream);
     const events = parseFrames(frames);
 

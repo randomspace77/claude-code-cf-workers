@@ -10,6 +10,7 @@ import type {
   OpenAIToolCall,
   OpenAITool,
 } from "../types";
+import { getAssistantReasoning, getToolReasoning } from "./reasoning-cache";
 
 const PLACEHOLDER_REASONING =
   "Compatibility bridge placeholder reasoning for prior assistant history.";
@@ -76,10 +77,10 @@ function buildToolChoiceInstruction(
  * Convert a Claude Messages API request into an OpenAI Chat Completions
  * request. Model mapping is handled by the provider layer before this is called.
  */
-export function convertClaudeToOpenAI(
+export async function convertClaudeToOpenAI(
   claudeRequest: ClaudeMessagesRequest,
   config: AppConfig,
-): OpenAIRequest {
+): Promise<OpenAIRequest> {
   const openaiModel = claudeRequest.model;
 
   const openaiMessages: OpenAIMessage[] = [];
@@ -132,7 +133,7 @@ export function convertClaudeToOpenAI(
       const hasToolUses =
         Array.isArray(msg.content) &&
         msg.content.some((block) => "type" in block && block.type === Constants.CONTENT_TOOL_USE);
-      const assistant = convertAssistantMessage(msg, openaiModel, prevAssistantHadToolCall);
+      const assistant = await convertAssistantMessage(msg, openaiModel, config, prevAssistantHadToolCall);
       openaiMessages.push(assistant);
       prevAssistantHadToolCall = hasToolUses;
     }
@@ -270,11 +271,12 @@ function convertUserMessage(msg: ClaudeMessage): OpenAIMessage {
   return { role: "user", content: parts };
 }
 
-function convertAssistantMessage(
+async function convertAssistantMessage(
   msg: ClaudeMessage,
   model: string,
+  config: AppConfig,
   hasToolCall = false,
-): OpenAIMessage {
+): Promise<OpenAIMessage> {
   if (msg.content === null || msg.content === undefined) {
     return { role: "assistant", content: null };
   }
@@ -307,9 +309,10 @@ function convertAssistantMessage(
     }
   }
 
+  const assistantText = textParts.length > 0 ? textParts.join("") : null;
   const result: OpenAIMessage = {
     role: "assistant",
-    content: textParts.length > 0 ? textParts.join("") : null,
+    content: assistantText,
   };
 
   if (toolCalls.length > 0) {
@@ -322,7 +325,15 @@ function convertAssistantMessage(
     if (thinking) {
       result.reasoning_content = thinking;
     } else if (toolCalls.length > 0 || hasToolCall) {
-      result.reasoning_content = PLACEHOLDER_REASONING;
+      const toolReasoning = toolCalls
+        .map((toolCall) => getToolReasoning(config, model, toolCall.id));
+      const resolvedToolReasoning = (await Promise.all(toolReasoning))
+        .filter(Boolean)
+        .join("\n");
+      result.reasoning_content =
+        resolvedToolReasoning ||
+        (await getAssistantReasoning(config, model, assistantText)) ||
+        PLACEHOLDER_REASONING;
     }
   }
 

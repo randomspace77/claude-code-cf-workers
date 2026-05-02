@@ -17,7 +17,7 @@ export async function sendOpenAIRequest(
   const mappedBody = { ...body, model: mapModelForProvider(provider, body.model) };
 
   // Convert Claude request → OpenAI request
-  const openaiRequest = convertClaudeToOpenAI(mappedBody, config);
+  const openaiRequest = await convertClaudeToOpenAI(mappedBody, config);
 
   // Build URL
   let base = provider.baseUrl;
@@ -45,9 +45,9 @@ export async function sendOpenAIRequest(
 
   try {
     if (body.stream) {
-      return await handleStreamingRequest(url, headers, openaiRequest as unknown as Record<string, unknown>, signal, body, config);
+      return await handleStreamingRequest(url, headers, openaiRequest as unknown as Record<string, unknown>, signal, body, mappedBody.model, config);
     } else {
-      return await handleNonStreamingRequest(url, headers, openaiRequest as unknown as Record<string, unknown>, signal, body, config);
+      return await handleNonStreamingRequest(url, headers, openaiRequest as unknown as Record<string, unknown>, signal, body, mappedBody.model, config);
     }
   } catch (err) {
     console.error(`OpenAI provider "${provider.name}" error:`, err);
@@ -63,6 +63,7 @@ async function handleStreamingRequest(
   openaiRequest: Record<string, unknown>,
   signal: AbortSignal,
   originalBody: ClaudeMessagesRequest,
+  cacheModel: string,
   config: AppConfig,
 ): Promise<Response> {
   const requestBody = {
@@ -115,7 +116,7 @@ async function handleStreamingRequest(
     },
   });
 
-  const claudeStream = convertOpenAIStreamToClaude(sseStream, originalBody, config.logLevel);
+  const claudeStream = convertOpenAIStreamToClaude(sseStream, originalBody, config, config.logLevel, cacheModel);
 
   const encoder = new TextEncoder();
   const byteStream = claudeStream.pipeThrough(
@@ -142,6 +143,7 @@ async function handleNonStreamingRequest(
   openaiRequest: Record<string, unknown>,
   signal: AbortSignal,
   originalBody: ClaudeMessagesRequest,
+  cacheModel: string,
   config: AppConfig,
 ): Promise<Response> {
   const requestBody = { ...openaiRequest, stream: false };
@@ -160,10 +162,12 @@ async function handleNonStreamingRequest(
   }
 
   const openaiResponse = await response.json();
-  const claudeResponse = convertOpenAIToClaude(
+  const claudeResponse = await convertOpenAIToClaude(
     openaiResponse as import("../types").OpenAIResponse,
     originalBody,
+    config,
     config.logLevel,
+    cacheModel,
   );
 
   return Response.json(claudeResponse);

@@ -1,6 +1,36 @@
 import { describe, it, expect } from "vitest";
 import { convertOpenAIToClaude } from "../src/conversion/response";
-import type { OpenAIResponse, ClaudeMessagesRequest } from "../src/types";
+import { getToolReasoning } from "../src/conversion/reasoning-cache";
+import type { OpenAIResponse, ClaudeMessagesRequest, AppConfig, ReasoningCacheNamespace } from "../src/types";
+
+const defaultConfig: AppConfig = {
+  openaiApiKey: "test-key",
+  openaiBaseUrl: "https://api.openai.com/v1",
+  bigModel: "gpt-4o",
+  middleModel: "gpt-4o",
+  smallModel: "gpt-4o-mini",
+  maxTokensLimit: 16384,
+  minTokensLimit: 4096,
+  reasoningCacheTtlSeconds: 2592000,
+  requestTimeout: 90,
+  logLevel: "WARNING",
+  customHeaders: {},
+  passthroughModels: [],
+  enableModelMapping: false,
+  defaultProvider: "default",
+  routing: {},
+  providers: {},
+};
+
+function createTestKV(): ReasoningCacheNamespace {
+  const values = new Map<string, string>();
+  return {
+    get: async (key: string) => values.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      values.set(key, value);
+    },
+  } as unknown as ReasoningCacheNamespace;
+}
 
 describe("Response Conversion", () => {
   const originalRequest: ClaudeMessagesRequest = {
@@ -9,7 +39,7 @@ describe("Response Conversion", () => {
     messages: [{ role: "user", content: "Hello" }],
   };
 
-  it("converts a basic text response", () => {
+  it("converts a basic text response", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-123",
       object: "chat.completion",
@@ -32,7 +62,7 @@ describe("Response Conversion", () => {
       },
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
 
     expect(result.type).toBe("message");
     expect(result.role).toBe("assistant");
@@ -49,7 +79,7 @@ describe("Response Conversion", () => {
     expect(usage.output_tokens).toBe(7);
   });
 
-  it("converts tool call response", () => {
+  it("converts tool call response", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-456",
       object: "chat.completion",
@@ -82,7 +112,7 @@ describe("Response Conversion", () => {
       },
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
 
     expect(result.stop_reason).toBe("tool_use");
 
@@ -94,7 +124,41 @@ describe("Response Conversion", () => {
     expect(content[0].input).toEqual({ location: "New York" });
   });
 
-  it("maps max_tokens finish reason", () => {
+  it("caches DeepSeek reasoning_content by tool call id", async () => {
+    const config = { ...defaultConfig, reasoningCache: createTestKV() };
+    const openaiResponse: OpenAIResponse = {
+      id: "chatcmpl-reasoning-tool",
+      object: "chat.completion",
+      created: 1234567890,
+      model: "deepseek-v4-pro[1m]",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: null,
+            reasoning_content: "reasoning for tool call",
+            tool_calls: [
+              {
+                id: "call_reasoning",
+                type: "function",
+                function: {
+                  name: "Read",
+                  arguments: '{"file_path":"README.md"}',
+                },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+    };
+
+    await convertOpenAIToClaude(openaiResponse, originalRequest, config);
+    await expect(getToolReasoning(config, "deepseek-v4-pro[1m]", "call_reasoning")).resolves.toBe("reasoning for tool call");
+  });
+
+  it("maps max_tokens finish reason", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-789",
       object: "chat.completion",
@@ -112,11 +176,11 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     expect(result.stop_reason).toBe("max_tokens");
   });
 
-  it("throws error when choices array is empty", () => {
+  it("throws error when choices array is empty", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-empty",
       object: "chat.completion",
@@ -125,12 +189,12 @@ describe("Response Conversion", () => {
       choices: [],
     };
 
-    expect(() =>
-      convertOpenAIToClaude(openaiResponse, originalRequest),
-    ).toThrow("No choices in OpenAI response");
+    await expect(
+      convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig),
+    ).rejects.toThrow("No choices in OpenAI response");
   });
 
-  it("handles invalid JSON in tool call arguments", () => {
+  it("handles invalid JSON in tool call arguments", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-bad-json",
       object: "chat.completion",
@@ -158,14 +222,14 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     expect(content).toHaveLength(1);
     expect(content[0].type).toBe("tool_use");
     expect(content[0].input).toEqual({ raw_arguments: "{invalid json}" });
   });
 
-  it("handles response with no usage data", () => {
+  it("handles response with no usage data", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-no-usage",
       object: "chat.completion",
@@ -183,13 +247,13 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const usage = result.usage as Record<string, number>;
     expect(usage.input_tokens).toBe(0);
     expect(usage.output_tokens).toBe(0);
   });
 
-  it("handles response with null content and no tool calls", () => {
+  it("handles response with null content and no tool calls", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-null",
       object: "chat.completion",
@@ -207,7 +271,7 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     // Should have at least one empty text block
     expect(content.length).toBeGreaterThanOrEqual(1);
@@ -215,7 +279,7 @@ describe("Response Conversion", () => {
     expect(content[0].text).toBe("");
   });
 
-  it("maps function_call finish reason to tool_use", () => {
+  it("maps function_call finish reason to tool_use", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-fn",
       object: "chat.completion",
@@ -240,11 +304,11 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     expect(result.stop_reason).toBe("tool_use");
   });
 
-  it("maps unknown finish reason to end_turn", () => {
+  it("maps unknown finish reason to end_turn", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-unknown",
       object: "chat.completion",
@@ -262,11 +326,11 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     expect(result.stop_reason).toBe("end_turn");
   });
 
-  it("handles multiple tool calls in one response", () => {
+  it("handles multiple tool calls in one response", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-multi-tool",
       object: "chat.completion",
@@ -302,14 +366,14 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     expect(content).toHaveLength(2);
     expect(content[0].name).toBe("tool_a");
     expect(content[1].name).toBe("tool_b");
   });
 
-  it("includes both text and tool calls in content", () => {
+  it("includes both text and tool calls in content", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-mixed",
       object: "chat.completion",
@@ -337,7 +401,7 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     expect(content).toHaveLength(2);
     expect(content[0].type).toBe("text");
@@ -346,7 +410,7 @@ describe("Response Conversion", () => {
     expect(content[1].name).toBe("search");
   });
 
-  it("preserves original request model in response", () => {
+  it("preserves original request model in response", async () => {
     const glmRequest: ClaudeMessagesRequest = {
       model: "glm-5.1",
       max_tokens: 1000,
@@ -370,7 +434,7 @@ describe("Response Conversion", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, glmRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, glmRequest, defaultConfig);
     expect(result.model).toBe("glm-5.1");
   });
 });

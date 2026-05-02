@@ -1,6 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { convertOpenAIToClaude } from "../src/conversion/response";
-import type { OpenAIResponse, ClaudeMessagesRequest } from "../src/types";
+import type { OpenAIResponse, ClaudeMessagesRequest, AppConfig } from "../src/types";
+
+const defaultConfig: AppConfig = {
+  openaiApiKey: "test-key",
+  openaiBaseUrl: "https://api.openai.com/v1",
+  bigModel: "gpt-4o",
+  middleModel: "gpt-4o",
+  smallModel: "gpt-4o-mini",
+  maxTokensLimit: 16384,
+  minTokensLimit: 4096,
+  reasoningCacheTtlSeconds: 2592000,
+  requestTimeout: 90,
+  logLevel: "WARNING",
+  customHeaders: {},
+  passthroughModels: [],
+  enableModelMapping: false,
+  defaultProvider: "default",
+  routing: {},
+  providers: {},
+};
 
 describe("Response Conversion - Reasoning Content", () => {
   const originalRequest: ClaudeMessagesRequest = {
@@ -9,7 +28,7 @@ describe("Response Conversion - Reasoning Content", () => {
     messages: [{ role: "user", content: "What is 2+2?" }],
   };
 
-  it("converts response with reasoning_content to thinking block", () => {
+  it("converts response with reasoning_content to thinking block", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-reasoning-1",
       object: "chat.completion",
@@ -33,7 +52,7 @@ describe("Response Conversion - Reasoning Content", () => {
       },
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
 
     expect(result.type).toBe("message");
     expect(result.role).toBe("assistant");
@@ -52,7 +71,7 @@ describe("Response Conversion - Reasoning Content", () => {
     expect(content[1].text).toBe("2+2 equals 4.");
   });
 
-  it("handles response without reasoning_content normally", () => {
+  it("handles response without reasoning_content normally", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-no-reasoning",
       object: "chat.completion",
@@ -70,14 +89,14 @@ describe("Response Conversion - Reasoning Content", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     expect(content).toHaveLength(1);
     expect(content[0].type).toBe("text");
     expect(content[0].text).toBe("Hello!");
   });
 
-  it("handles response with reasoning_content but null content", () => {
+  it("handles response with reasoning_content but null content", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-reasoning-only",
       object: "chat.completion",
@@ -96,7 +115,7 @@ describe("Response Conversion - Reasoning Content", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     // Should have thinking block + empty text block (required by protocol)
     expect(content.length).toBeGreaterThanOrEqual(1);
@@ -104,7 +123,7 @@ describe("Response Conversion - Reasoning Content", () => {
     expect(content[0].thinking).toBe("Deep thinking...");
   });
 
-  it("handles response with empty reasoning_content string", () => {
+  it("handles response with empty reasoning_content string", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-empty-reasoning",
       object: "chat.completion",
@@ -123,7 +142,7 @@ describe("Response Conversion - Reasoning Content", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
     // Empty reasoning_content should not create a thinking block
     expect(content).toHaveLength(1);
@@ -131,7 +150,7 @@ describe("Response Conversion - Reasoning Content", () => {
     expect(content[0].text).toBe("Answer");
   });
 
-  it("handles tool calls alongside reasoning_content", () => {
+  it("handles tool calls alongside reasoning_content", async () => {
     const openaiResponse: OpenAIResponse = {
       id: "chatcmpl-reasoning-tool",
       object: "chat.completion",
@@ -160,7 +179,7 @@ describe("Response Conversion - Reasoning Content", () => {
       ],
     };
 
-    const result = convertOpenAIToClaude(openaiResponse, originalRequest);
+    const result = await convertOpenAIToClaude(openaiResponse, originalRequest, defaultConfig);
     const content = result.content as Array<Record<string, unknown>>;
 
     // Should have thinking + tool_use blocks

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { convertClaudeToOpenAI } from "../src/conversion/request";
-import type { ClaudeMessagesRequest, AppConfig } from "../src/types";
+import { setToolReasoning } from "../src/conversion/reasoning-cache";
+import type { ClaudeMessagesRequest, AppConfig, ReasoningCacheNamespace } from "../src/types";
 
 const defaultConfig: AppConfig = {
   openaiApiKey: "test-key",
@@ -10,6 +11,7 @@ const defaultConfig: AppConfig = {
   smallModel: "gpt-4o-mini",
   maxTokensLimit: 16384,
   minTokensLimit: 4096,
+  reasoningCacheTtlSeconds: 2592000,
   requestTimeout: 90,
   logLevel: "WARNING",
   customHeaders: {},
@@ -29,15 +31,25 @@ const defaultConfig: AppConfig = {
   },
 };
 
+function createTestKV(): ReasoningCacheNamespace {
+  const values = new Map<string, string>();
+  return {
+    get: async (key: string) => values.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      values.set(key, value);
+    },
+  } as unknown as ReasoningCacheNamespace;
+}
+
 describe("Request Conversion", () => {
-  it("converts a basic text message", () => {
+  it("converts a basic text message", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 1000,
       messages: [{ role: "user", content: "Hello" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
 
     expect(result.model).toBe("claude-3-5-sonnet-20241022");
     expect(result.messages).toHaveLength(1);
@@ -45,7 +57,7 @@ describe("Request Conversion", () => {
     expect(result.messages[0].content).toBe("Hello");
   });
 
-  it("passes haiku model unchanged (mapping now in provider layer)", () => {
+  it("passes haiku model unchanged (mapping now in provider layer)", async () => {
     const mappingConfig: AppConfig = { ...defaultConfig, enableModelMapping: true };
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-haiku-20241022",
@@ -53,11 +65,11 @@ describe("Request Conversion", () => {
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, mappingConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, mappingConfig);
     expect(result.model).toBe("claude-3-5-haiku-20241022");
   });
 
-  it("passes opus model unchanged (mapping now in provider layer)", () => {
+  it("passes opus model unchanged (mapping now in provider layer)", async () => {
     const mappingConfig: AppConfig = { ...defaultConfig, enableModelMapping: true };
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-opus-20240229",
@@ -65,11 +77,11 @@ describe("Request Conversion", () => {
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, mappingConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, mappingConfig);
     expect(result.model).toBe("claude-3-opus-20240229");
   });
 
-  it("includes system message", () => {
+  it("includes system message", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -77,13 +89,13 @@ describe("Request Conversion", () => {
       messages: [{ role: "user", content: "Hello" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].role).toBe("system");
     expect(result.messages[0].content).toBe("You are a helpful assistant.");
   });
 
-  it("converts tools", () => {
+  it("converts tools", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 200,
@@ -102,58 +114,58 @@ describe("Request Conversion", () => {
       tool_choice: { type: "auto" },
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.tools).toHaveLength(1);
     expect(result.tools![0].function.name).toBe("get_weather");
     expect(result.tool_choice).toBe("auto");
   });
 
-  it("passes through OpenAI model names unchanged", () => {
+  it("passes through OpenAI model names unchanged", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "gpt-4o",
       max_tokens: 100,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.model).toBe("gpt-4o");
   });
 
-  it("enforces min/max token limits", () => {
+  it("enforces min/max token limits", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 10,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     // Should be clamped to minTokensLimit
     expect(result.max_tokens).toBe(defaultConfig.minTokensLimit);
   });
 
-  it("clamps max_tokens to maxTokensLimit", () => {
+  it("clamps max_tokens to maxTokensLimit", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 999999,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.max_tokens).toBe(defaultConfig.maxTokensLimit);
   });
 
-  it("passes through GLM model names unchanged", () => {
+  it("passes through GLM model names unchanged", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "glm-5.1",
       max_tokens: 8000,
       messages: [{ role: "user", content: "Hello" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.model).toBe("glm-5.1");
   });
 
-  it("converts system as array of text blocks", () => {
+  it("converts system as array of text blocks", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -164,12 +176,12 @@ describe("Request Conversion", () => {
       messages: [{ role: "user", content: "Hello" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.messages[0].role).toBe("system");
     expect(result.messages[0].content).toBe("First instruction.\n\nSecond instruction.");
   });
 
-  it("includes stop_sequences as stop", () => {
+  it("includes stop_sequences as stop", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -177,11 +189,11 @@ describe("Request Conversion", () => {
       stop_sequences: ["Human:", "Assistant:"],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.stop).toEqual(["Human:", "Assistant:"]);
   });
 
-  it("includes top_p when provided", () => {
+  it("includes top_p when provided", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -189,11 +201,11 @@ describe("Request Conversion", () => {
       top_p: 0.9,
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.top_p).toBe(0.9);
   });
 
-  it("converts multimodal content with image", () => {
+  it("converts multimodal content with image", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -215,7 +227,7 @@ describe("Request Conversion", () => {
       ],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     const content = result.messages[0].content as unknown as Array<Record<string, unknown>>;
     expect(content).toHaveLength(2);
     expect(content[0]).toEqual({ type: "text", text: "What is in this image?" });
@@ -225,7 +237,7 @@ describe("Request Conversion", () => {
     });
   });
 
-  it("converts assistant message with tool use", () => {
+  it("converts assistant message with tool use", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -256,7 +268,7 @@ describe("Request Conversion", () => {
       ],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     // user, assistant (with tool_calls), tool result
     expect(result.messages).toHaveLength(3);
 
@@ -272,7 +284,7 @@ describe("Request Conversion", () => {
     expect(toolMsg.content).toBe("Sunny, 72°F");
   });
 
-  it("converts tool_choice type 'any' to 'required' (for non-DeepSeek models)", () => {
+  it("converts tool_choice type 'any' to 'required' (for non-DeepSeek models)", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -287,11 +299,11 @@ describe("Request Conversion", () => {
       tool_choice: { type: "any" },
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.tool_choice).toBe("required");
   });
 
-  it("converts tool_choice type 'any' to undefined for DeepSeek models (softened)", () => {
+  it("converts tool_choice type 'any' to undefined for DeepSeek models (softened)", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "deepseek-v4-pro[1m]",
       max_tokens: 100,
@@ -306,7 +318,7 @@ describe("Request Conversion", () => {
       tool_choice: { type: "any" },
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.tool_choice).toBeUndefined();
     // Should have injected a system instruction instead
     const sysMsg = result.messages.find((m) => m.role === "system");
@@ -314,7 +326,44 @@ describe("Request Conversion", () => {
     expect(sysMsg!.content).toContain("requires a tool call");
   });
 
-  it("converts tool_choice with specific tool name", () => {
+  it("replays cached DeepSeek reasoning_content for historical tool calls", async () => {
+    const config = { ...defaultConfig, reasoningCache: createTestKV() };
+    await setToolReasoning(config, "deepseek-v4-pro[1m]", "tool_1", "cached reasoning for tool_1");
+
+    const claudeReq: ClaudeMessagesRequest = {
+      model: "deepseek-v4-pro[1m]",
+      max_tokens: 100,
+      messages: [
+        { role: "user", content: "Read a file" },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "tool_1",
+              name: "Read",
+              input: { file_path: "README.md" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool_1",
+              content: "file contents",
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = await convertClaudeToOpenAI(claudeReq, config);
+    expect(result.messages[1].reasoning_content).toBe("cached reasoning for tool_1");
+  });
+
+  it("converts tool_choice with specific tool name", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -329,25 +378,25 @@ describe("Request Conversion", () => {
       tool_choice: { type: "tool", name: "specific_tool" },
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.tool_choice).toEqual({
       type: "function",
       function: { name: "specific_tool" },
     });
   });
 
-  it("handles null content in user message", () => {
+  it("handles null content in user message", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
       messages: [{ role: "user", content: null }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.messages[0].content).toBe("");
   });
 
-  it("handles null content in assistant message", () => {
+  it("handles null content in assistant message", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -357,11 +406,11 @@ describe("Request Conversion", () => {
       ],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.messages[1].content).toBeNull();
   });
 
-  it("sets stream from request", () => {
+  it("sets stream from request", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -369,22 +418,22 @@ describe("Request Conversion", () => {
       stream: true,
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.stream).toBe(true);
   });
 
-  it("defaults stream to false", () => {
+  it("defaults stream to false", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
       messages: [{ role: "user", content: "Hi" }],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.stream).toBe(false);
   });
 
-  it("skips tools with empty names", () => {
+  it("skips tools with empty names", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "claude-3-5-sonnet-20241022",
       max_tokens: 100,
@@ -403,7 +452,7 @@ describe("Request Conversion", () => {
       ],
     };
 
-    const result = convertClaudeToOpenAI(claudeReq, defaultConfig);
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
     expect(result.tools).toHaveLength(1);
     expect(result.tools![0].function.name).toBe("valid_tool");
   });

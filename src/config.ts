@@ -1,4 +1,4 @@
-import type { Env, AppConfig, ResolvedProvider, ProvidersJsonConfig, ProviderUserConfig } from "./types";
+import type { Env, AppConfig, ResolvedProvider, ProvidersJsonConfig, ProviderUserConfig, ReasoningCacheNamespace } from "./types";
 import { getKnownProvider } from "./providers/registry";
 
 /**
@@ -9,21 +9,27 @@ import { getKnownProvider } from "./providers/registry";
  * 2. Legacy mode: no `PROVIDERS` → auto-generate single-provider config from legacy vars
  */
 export function loadConfig(env: Env): AppConfig {
-  const globalTimeout = parseInt(env.REQUEST_TIMEOUT || "90", 10);
-  const logLevel = env.LOG_LEVEL || "WARNING";
-  const maxTokensLimit = parseInt(env.MAX_TOKENS_LIMIT || "16384", 10);
-  const minTokensLimit = parseInt(env.MIN_TOKENS_LIMIT || "4096", 10);
-  const anthropicApiKey = env.ANTHROPIC_API_KEY;
+  const globalTimeout = parseInt(envString(env.REQUEST_TIMEOUT) || "90", 10);
+  const logLevel = envString(env.LOG_LEVEL) || "WARNING";
+  const maxTokensLimit = parseInt(envString(env.MAX_TOKENS_LIMIT) || "16384", 10);
+  const minTokensLimit = parseInt(envString(env.MIN_TOKENS_LIMIT) || "4096", 10);
+  const anthropicApiKey = envString(env.ANTHROPIC_API_KEY);
+  const reasoningCache = isKVNamespace(env.REASONING_CACHE) ? env.REASONING_CACHE : undefined;
+  const reasoningCacheTtlSeconds = parseInt(
+    envString(env.REASONING_CACHE_TTL_SECONDS) || "2592000",
+    10,
+  );
 
   // Legacy single-provider fields (always parsed for backward compat)
-  const bigModel = env.BIG_MODEL || "gpt-4o";
-  const customHeaders = parseCustomHeaders(env.CUSTOM_HEADERS);
-  const passthroughModels = parsePassthroughModels(env.PASSTHROUGH_MODELS);
-  const enableModelMapping = env.ENABLE_MODEL_MAPPING === "true";
+  const bigModel = envString(env.BIG_MODEL) || "gpt-4o";
+  const customHeaders = parseCustomHeaders(envString(env.CUSTOM_HEADERS));
+  const passthroughModels = parsePassthroughModels(envString(env.PASSTHROUGH_MODELS));
+  const enableModelMapping = envString(env.ENABLE_MODEL_MAPPING) === "true";
 
-  if (env.PROVIDERS) {
+  const providersJson = envString(env.PROVIDERS);
+  if (providersJson) {
     // --- Multi-provider mode ---
-    const parsed = parseProvidersJson(env.PROVIDERS);
+    const parsed = parseProvidersJson(providersJson);
     const providers = resolveProviders(parsed, env, globalTimeout);
     console.log({
       _tag: "config-mode",
@@ -38,16 +44,18 @@ export function loadConfig(env: Env): AppConfig {
       requestTimeout: globalTimeout,
       maxTokensLimit,
       minTokensLimit,
+      reasoningCache,
+      reasoningCacheTtlSeconds,
       defaultProvider: parsed.default,
       routing: parsed.routing ?? {},
       providers,
       // Legacy fields (not used in multi-provider mode, but kept for type compat)
-      openaiApiKey: env.OPENAI_API_KEY || "",
-      openaiBaseUrl: env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-      azureApiVersion: env.AZURE_API_VERSION,
+      openaiApiKey: envString(env.OPENAI_API_KEY) || "",
+      openaiBaseUrl: envString(env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
+      azureApiVersion: envString(env.AZURE_API_VERSION),
       bigModel,
-      middleModel: env.MIDDLE_MODEL || bigModel,
-      smallModel: env.SMALL_MODEL || "gpt-4o-mini",
+      middleModel: envString(env.MIDDLE_MODEL) || bigModel,
+      smallModel: envString(env.SMALL_MODEL) || "gpt-4o-mini",
       customHeaders,
       passthroughModels,
       enableModelMapping,
@@ -59,7 +67,7 @@ export function loadConfig(env: Env): AppConfig {
     _tag: "config-mode",
     mode: "legacy",
     message: "PROVIDERS env var not set — using legacy single-provider mode",
-    baseUrl: env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    baseUrl: envString(env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
   });
   const legacyProvider = buildLegacyProvider(env, globalTimeout, customHeaders);
   const providers: Record<string, ResolvedProvider> = { default: legacyProvider };
@@ -85,16 +93,18 @@ export function loadConfig(env: Env): AppConfig {
     requestTimeout: globalTimeout,
     maxTokensLimit,
     minTokensLimit,
+    reasoningCache,
+    reasoningCacheTtlSeconds,
     defaultProvider: "default",
     routing,
     providers,
     // Legacy fields
-    openaiApiKey: env.OPENAI_API_KEY || "",
-    openaiBaseUrl: env.OPENAI_BASE_URL || "https://api.openai.com/v1",
-    azureApiVersion: env.AZURE_API_VERSION,
+    openaiApiKey: envString(env.OPENAI_API_KEY) || "",
+    openaiBaseUrl: envString(env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
+    azureApiVersion: envString(env.AZURE_API_VERSION),
     bigModel,
-    middleModel: env.MIDDLE_MODEL || bigModel,
-    smallModel: env.SMALL_MODEL || "gpt-4o-mini",
+    middleModel: envString(env.MIDDLE_MODEL) || bigModel,
+    smallModel: envString(env.SMALL_MODEL) || "gpt-4o-mini",
     customHeaders,
     passthroughModels,
     enableModelMapping,
@@ -176,7 +186,7 @@ function resolveOneProvider(
 
   // Resolve API key: PROVIDER_<NAME>_API_KEY env var
   const envKeyName = `PROVIDER_${name.toUpperCase().replace(/-/g, "_")}_API_KEY`;
-  const apiKey = env[envKeyName] || "";
+  const apiKey = envString(env[envKeyName]) || "";
 
   // Merge headers: known defaults + user overrides
   const headers: Record<string, string> = {
@@ -211,26 +221,26 @@ function buildLegacyProvider(
   timeout: number,
   customHeaders: Record<string, string>,
 ): ResolvedProvider {
-  const bigModel = env.BIG_MODEL || "gpt-4o";
-  const enableModelMapping = env.ENABLE_MODEL_MAPPING === "true";
+  const bigModel = envString(env.BIG_MODEL) || "gpt-4o";
+  const enableModelMapping = envString(env.ENABLE_MODEL_MAPPING) === "true";
 
   let modelMapping: Record<string, string> | undefined;
   if (enableModelMapping) {
     modelMapping = {
       opus: bigModel,
-      sonnet: env.MIDDLE_MODEL || bigModel,
-      haiku: env.SMALL_MODEL || "gpt-4o-mini",
+      sonnet: envString(env.MIDDLE_MODEL) || bigModel,
+      haiku: envString(env.SMALL_MODEL) || "gpt-4o-mini",
     };
   }
 
   return {
     name: "default",
-    baseUrl: env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    baseUrl: envString(env.OPENAI_BASE_URL) || "https://api.openai.com/v1",
     protocol: "openai",
-    apiKey: env.OPENAI_API_KEY || "",
+    apiKey: envString(env.OPENAI_API_KEY) || "",
     timeout,
     headers: { ...customHeaders },
-    azureApiVersion: env.AZURE_API_VERSION,
+    azureApiVersion: envString(env.AZURE_API_VERSION),
     modelMapping,
   };
 }
@@ -267,4 +277,17 @@ function parsePassthroughModels(raw: string | undefined): string[] {
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s.length > 0);
+}
+
+function envString(value: string | ReasoningCacheNamespace | undefined): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isKVNamespace(value: unknown): value is ReasoningCacheNamespace {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as ReasoningCacheNamespace).get === "function" &&
+    typeof (value as ReasoningCacheNamespace).put === "function"
+  );
 }

@@ -25,6 +25,18 @@ invocation_logs = true
 [observability.traces]
 enabled = false
 
+# DeepSeek V4 reasoning_content replay cache.
+# Create a Workers KV namespace, then uncomment this block and fill in its id:
+#
+#   wrangler kv namespace create REASONING_CACHE
+#
+# [[kv_namespaces]]
+# binding = "REASONING_CACHE"
+# id = "REPLACE_WITH_KV_NAMESPACE_ID"
+#
+# Optional Dashboard/vars setting:
+#   REASONING_CACHE_TTL_SECONDS (default: 2592000, 30 days)
+
 # ============================================================
 # All configuration is done via Cloudflare Dashboard or `wrangler secret put`.
 # Do NOT add [vars] here — they would overwrite Dashboard settings on every deploy.
@@ -39,6 +51,7 @@ enabled = false
 #   MAX_TOKENS_LIMIT       (default: 16384)
 #   MIN_TOKENS_LIMIT       (default: 4096)
 #   REQUEST_TIMEOUT        (default: 90)
+#   REASONING_CACHE_TTL_SECONDS (default: 2592000, 30 days)
 #
 # Legacy mode vars (only when PROVIDERS is not set):
 #   OPENAI_BASE_URL        (default: https://api.openai.com/v1)
