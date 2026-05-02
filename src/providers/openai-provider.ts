@@ -72,6 +72,8 @@ async function handleStreamingRequest(
     stream_options: { include_usage: true },
   };
 
+  logOpenAIRequestForDebug(requestBody, originalBody, config);
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -149,6 +151,8 @@ async function handleNonStreamingRequest(
   const requestBody = { ...openaiRequest, stream: false };
   delete (requestBody as Record<string, unknown>)["stream_options"];
 
+  logOpenAIRequestForDebug(requestBody, originalBody, config);
+
   const response = await fetch(url, {
     method: "POST",
     headers,
@@ -214,4 +218,36 @@ function errorResponse(status: number, message: string): Response {
     }),
     { status, headers: { "Content-Type": "application/json" } },
   );
+}
+
+function logOpenAIRequestForDebug(
+  requestBody: Record<string, unknown>,
+  originalBody: ClaudeMessagesRequest,
+  config: AppConfig,
+): void {
+  if (config.logLevel !== "DEBUG") return;
+  const tools = Array.isArray(requestBody.tools)
+    ? requestBody.tools.map((tool, index) => {
+      const fn = tool && typeof tool === "object"
+        ? (tool as Record<string, unknown>).function
+        : undefined;
+      const fnRecord = fn && typeof fn === "object" ? fn as Record<string, unknown> : {};
+      return {
+        index,
+        type: tool && typeof tool === "object" ? (tool as Record<string, unknown>).type : undefined,
+        name: fnRecord.name,
+        hasParameters: Boolean(fnRecord.parameters),
+      };
+    })
+    : [];
+  console.log({
+    _tag: "openai-request",
+    model: requestBody.model,
+    originalModel: originalBody.model,
+    stream: requestBody.stream,
+    messageCount: Array.isArray(requestBody.messages) ? requestBody.messages.length : 0,
+    toolCount: tools.length,
+    tools,
+    toolChoice: requestBody.tool_choice,
+  });
 }

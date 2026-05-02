@@ -165,15 +165,9 @@ export async function convertClaudeToOpenAI(
   if (claudeRequest.tools?.length) {
     const openaiTools: OpenAITool[] = [];
     for (const tool of claudeRequest.tools) {
-      if (tool.name?.trim()) {
-        openaiTools.push({
-          type: Constants.TOOL_FUNCTION as "function",
-          function: {
-            name: tool.name,
-            description: tool.description ?? "",
-            parameters: tool.input_schema,
-          },
-        });
+      const openaiTool = normalizeTool(tool);
+      if (openaiTool) {
+        openaiTools.push(openaiTool);
       }
     }
     if (openaiTools.length > 0) {
@@ -224,6 +218,40 @@ export async function convertClaudeToOpenAI(
 }
 
 // ---- Helpers ----
+
+function normalizeTool(tool: unknown): OpenAITool | null {
+  if (!tool || typeof tool !== "object") return null;
+  const record = tool as Record<string, unknown>;
+
+  const openAiFunction =
+    record.function && typeof record.function === "object"
+      ? (record.function as Record<string, unknown>)
+      : null;
+
+  const rawName = openAiFunction?.name ?? record.name;
+  if (typeof rawName !== "string") return null;
+  const name = rawName.trim();
+  if (!name) return null;
+
+  const rawDescription = openAiFunction?.description ?? record.description;
+  const rawParameters = openAiFunction?.parameters ?? record.input_schema;
+
+  return {
+    type: Constants.TOOL_FUNCTION as "function",
+    function: {
+      name,
+      description: typeof rawDescription === "string" ? rawDescription : "",
+      parameters: normalizeToolParameters(rawParameters),
+    },
+  };
+}
+
+function normalizeToolParameters(parameters: unknown): Record<string, unknown> {
+  if (parameters && typeof parameters === "object" && !Array.isArray(parameters)) {
+    return parameters as Record<string, unknown>;
+  }
+  return { type: "object", properties: {} };
+}
 
 function extractSystemText(
   system: string | Array<{ type: string; text: string }>,

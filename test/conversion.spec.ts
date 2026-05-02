@@ -120,6 +120,48 @@ describe("Request Conversion", () => {
     expect(result.tool_choice).toBe("auto");
   });
 
+  it("normalizes OpenAI-style tools and drops malformed tools", async () => {
+    const claudeReq = {
+      model: "deepseek-v4-pro[1m]",
+      max_tokens: 200,
+      messages: [{ role: "user", content: "Use a tool" }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "Read",
+            description: "Read a file",
+            parameters: {
+              type: "object",
+              properties: { file_path: { type: "string" } },
+            },
+          },
+        },
+        {
+          type: "function",
+          function: {
+            description: "Broken tool without a name",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+    } as unknown as ClaudeMessagesRequest;
+
+    const result = await convertClaudeToOpenAI(claudeReq, defaultConfig);
+    expect(result.tools).toHaveLength(1);
+    expect(result.tools![0]).toEqual({
+      type: "function",
+      function: {
+        name: "Read",
+        description: "Read a file",
+        parameters: {
+          type: "object",
+          properties: { file_path: { type: "string" } },
+        },
+      },
+    });
+  });
+
   it("passes through OpenAI model names unchanged", async () => {
     const claudeReq: ClaudeMessagesRequest = {
       model: "gpt-4o",
