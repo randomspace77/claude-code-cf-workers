@@ -504,21 +504,33 @@ docker compose up -d
 ```
 
 The proxy will be available at `http://localhost:3000`.
+Docker uses an in-memory reasoning cache by default, so no Cloudflare KV or Redis service is required for local runs.
 
 #### Environment Variables
 
-All the same environment variables from [Configuration Reference](#-configuration-reference) apply. Set them in your `.env` file or pass them directly:
+All the same environment variables from [Configuration Reference](#-configuration-reference) apply. Set them in your `.env` file:
 
 ```bash
-docker compose up -d -e PROVIDERS='{"default":"openai"}' -e PROVIDER_OPENAI_API_KEY=sk-xxx
+PROVIDERS='{"default":"openai","providers":{"openai":{}}}'
+PROVIDER_OPENAI_API_KEY=sk-xxx
+ANTHROPIC_API_KEY=my-proxy-password
 ```
 
 Extra Docker-specific variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `PORT` | HTTP listen port | `3000` |
+| `HOST_PORT` | Host port mapped to the container | `3000` |
+| `PORT` | Container HTTP listen port | `3000` |
 | `HOST` | HTTP listen address | `0.0.0.0` |
+| `REASONING_CACHE_BACKEND` | Local reasoning cache backend: `memory`, `redis`, or `none` | `memory` |
+| `REDIS_URL` | Redis connection URL when `REASONING_CACHE_BACKEND=redis` | `redis://redis:6379` |
+
+Redis is optional and intended for shared/public deployments:
+
+```bash
+REASONING_CACHE_BACKEND=redis docker compose --profile redis up -d
+```
 
 #### Manual Build (without Docker)
 
@@ -1113,21 +1125,33 @@ docker compose up -d
 ```
 
 服务运行在 `http://localhost:3000`。
+Docker 默认使用内存 reasoning cache，本地运行不需要 Cloudflare KV 或 Redis。
 
 #### 环境变量
 
-所有[配置参考](#-配置参考)中的环境变量均适用，通过 `.env` 文件或直接传入：
+所有[配置参考](#-配置参考)中的环境变量均适用，通过 `.env` 文件配置：
 
 ```bash
-docker compose up -d -e PROVIDERS='{"default":"openai"}' -e PROVIDER_OPENAI_API_KEY=sk-xxx
+PROVIDERS='{"default":"openai","providers":{"openai":{}}}'
+PROVIDER_OPENAI_API_KEY=sk-xxx
+ANTHROPIC_API_KEY=my-proxy-password
 ```
 
 Docker 额外变量：
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `PORT` | HTTP 监听端口 | `3000` |
+| `HOST_PORT` | 映射到宿主机的端口 | `3000` |
+| `PORT` | 容器内 HTTP 监听端口 | `3000` |
 | `HOST` | HTTP 监听地址 | `0.0.0.0` |
+| `REASONING_CACHE_BACKEND` | 本地 reasoning cache 后端：`memory`、`redis` 或 `none` | `memory` |
+| `REDIS_URL` | `REASONING_CACHE_BACKEND=redis` 时的 Redis 连接地址 | `redis://redis:6379` |
+
+Redis 是可选高级模式，适合共享或公开部署：
+
+```bash
+REASONING_CACHE_BACKEND=redis docker compose --profile redis up -d
+```
 
 #### 手动构建（不使用 Docker）
 

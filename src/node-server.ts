@@ -1,22 +1,31 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
-import type { Env } from "./types";
+import type { Env, ReasoningCacheNamespace } from "./types";
 import { handleRequest } from "./app";
+import { createNodeReasoningCache } from "./node-cache";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "0.0.0.0";
 
 /**
- * Build the Env object from process.env.
+ * Build the Env object from process.env and Node-only bindings.
  * Uses a Proxy so dynamic keys like PROVIDER_<NAME>_API_KEY resolve automatically.
  */
-function buildEnv(): Env {
+function buildEnv(reasoningCache: ReasoningCacheNamespace | undefined): Env {
   return new Proxy({} as Env, {
-    get(_target, prop: string) {
+    get(_target, prop: string | symbol) {
+      if (prop === "REASONING_CACHE") {
+        return reasoningCache;
+      }
+      if (typeof prop !== "string") return undefined;
       return process.env[prop];
     },
-    has(_target, prop: string) {
+    has(_target, prop: string | symbol) {
+      if (prop === "REASONING_CACHE") {
+        return reasoningCache !== undefined;
+      }
+      if (typeof prop !== "string") return false;
       return prop in process.env;
     },
   });
@@ -81,7 +90,7 @@ async function sendWebResponse(webRes: Response, res: ServerResponse): Promise<v
 
 // ---- Main ----
 
-const env = buildEnv();
+const env = buildEnv(await createNodeReasoningCache());
 
 const server = createServer(async (req, res) => {
   try {
